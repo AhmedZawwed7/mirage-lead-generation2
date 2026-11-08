@@ -1,4 +1,4 @@
-import os, re, sqlite3, io, csv, ipaddress, socket, urllib.parse
+import os, re, sqlite3, io, csv, ipaddress, socket, urllib.parse, hmac
 from functools import wraps
 from flask import Flask, request, session, redirect, url_for, render_template, jsonify, Response, flash
 import requests
@@ -14,10 +14,28 @@ DB = os.getenv("MIRAGE_DB", os.path.join(ROOT, "instance", "mirage.db"))
 os.makedirs(os.path.dirname(DB), exist_ok=True)
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY") or os.urandom(32)
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "0") == "1")
 ADMIN = os.getenv("MIRAGE_ADMIN_USER", "admin")
 PASSWORD = os.getenv("MIRAGE_ADMIN_PASSWORD", "")
 PHONE = re.compile(r"(?<![\w/])(\+?\d[\d\s().-]{7,17}\d)(?![\w/])")
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+@app.before_request
+def protect_mutations():
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.endpoint != "login":
+        origin = request.headers.get("Origin")
+        if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
+            return jsonify(error="طلب من مصدر غير مسموح"), 403
+        if not origin and request.headers.get("Sec-Fetch-Site") == "cross-site":
+            return jsonify(error="طلب من مصدر غير مسموح"), 403
+
+@app.after_request
+def security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    return response
 
 def db():
     c = sqlite3.connect(DB, timeout=20)
@@ -155,7 +173,7 @@ def health():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        if PASSWORD and request.form.get("username") == ADMIN and request.form.get("password") == PASSWORD:
+        if PASSWORD and hmac.compare_digest(request.form.get("username", ""), ADMIN) and hmac.compare_digest(request.form.get("password", ""), PASSWORD):
             session["user"] = ADMIN
             return redirect("/")
         flash("بيانات الدخول غير صحيحة أو لم يتم إعداد كلمة المرور.")
