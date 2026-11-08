@@ -91,3 +91,47 @@ def test_sales_user_only_edits_assigned_leads(monkeypatch):
     assert client.patch("/api/leads/" + str(own_id), json={"status": "contacted"}).status_code == 200
     assert client.patch("/api/leads/" + str(other_id), json={"status": "contacted"}).status_code == 403
     assert client.post("/api/search", json={"keyword": "test"}).status_code == 403
+
+def test_campaign_webhook_requires_secret_and_consent(monkeypatch):
+    monkeypatch.setenv("CAMPAIGN_WEBHOOK_TOKEN", "webhook-test-secret")
+    client = app.app.test_client()
+    denied = client.post("/api/webhooks/leads/meta_ads", json={
+        "company": "Demo Co", "phone": "+971500001234", "consent": True
+    })
+    assert denied.status_code == 401
+    no_consent = client.post("/api/webhooks/leads/meta_ads",
+        headers={"X-Mirage-Webhook-Token": "webhook-test-secret"},
+        json={"company": "Demo Co", "phone": "+971500001234"})
+    assert no_consent.status_code == 400
+
+def test_campaign_webhook_saves_and_deduplicates(monkeypatch):
+    monkeypatch.setenv("CAMPAIGN_WEBHOOK_TOKEN", "webhook-test-secret")
+    client = app.app.test_client()
+    headers = {"X-Mirage-Webhook-Token": "webhook-test-secret"}
+    payload = {"company": "Campaign Co", "phone": "+971500009876",
+               "email": "lead@campaign.example", "campaign": "Q4 Leads",
+               "external_id": "meta-unique-" + str(os.getpid()), "consent": True}
+    first = client.post("/api/webhooks/leads/meta_ads", headers=headers, json=payload)
+    second = client.post("/api/webhooks/leads/meta_ads", headers=headers, json=payload)
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json["duplicate"] is True
+
+def test_sales_user_cannot_access_unassigned_leads_or_search():
+    cdb = app.db()
+    username = "sales-scope-" + str(os.getpid())
+    cdb.execute("INSERT OR REPLACE INTO users(username,password_hash,role,active) VALUES(?,?,?,1)",
+                (username, app.generate_password_hash("long-test-password"), "sales"))
+    own_id = cdb.execute(
+        "INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
+        ("Own Lead", "+966500000111", "", "https://own-scope.example", "SA", "test", 60, username)).lastrowid
+    other_id = cdb.execute(
+        "INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
+        ("Other Lead", "+966500000112", "", "https://other-scope.example", "SA", "test", 60, "another-user")).lastrowid
+    cdb.commit()
+    cdb.close()
+    client = app.app.test_client()
+    client.post("/login", data={"username": username, "password": "long-test-password"})
+    assert client.patch("/api/leads/" + str(own_id), json={"status": "contacted"}).status_code == 200
+    assert client.patch("/api/leads/" + str(other_id), json={"status": "contacted"}).status_code == 403
+    assert client.post("/api/search", json={"keyword": "test"}).status_code == 403
