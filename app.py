@@ -23,12 +23,17 @@ EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 @app.before_request
 def protect_mutations():
-    if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.endpoint != "login":
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.endpoint not in ("login", "campaign_webhook"):
         origin = request.headers.get("Origin")
         if origin and origin.rstrip("/") != request.host_url.rstrip("/"):
             return jsonify(error="طلب من مصدر غير مسموح"), 403
         if not origin and request.headers.get("Sec-Fetch-Site") == "cross-site":
             return jsonify(error="طلب من مصدر غير مسموح"), 403
+        if session.get("user"):
+            expected = session.get("csrf_token", "")
+            supplied = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token", "")
+            if not expected or not hmac.compare_digest(expected, supplied):
+                return jsonify(error="انتهت صلاحية النموذج، حدّث الصفحة وحاول مجددًا"), 400
 
 @app.after_request
 def security_headers(response):
@@ -37,6 +42,12 @@ def security_headers(response):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     return response
+
+@app.context_processor
+def inject_csrf_token():
+    if session.get("user") and not session.get("csrf_token"):
+        session["csrf_token"] = secrets.token_urlsafe(32)
+    return {"csrf_token": session.get("csrf_token", "")}
 
 def db():
     c = sqlite3.connect(DB, timeout=20)
@@ -235,8 +246,10 @@ def login():
         username = request.form.get("username", "").strip()
         user = c.execute("SELECT * FROM users WHERE username=? AND active=1", (username,)).fetchone()
         if user and check_password_hash(user["password_hash"], request.form.get("password", "")):
+            session.clear()
             session["user"] = user["username"]
             session["role"] = user["role"]
+            session["csrf_token"] = secrets.token_urlsafe(32)
             c.close()
             return redirect("/")
         flash("بيانات الدخول غير صحيحة أو الحساب موقوف.")

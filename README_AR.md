@@ -5,7 +5,7 @@
 ## التشغيل المحلي
 1. استخدم Python 3.10 أو أحدث.
 2. نفّذ: pip install -r requirements.txt
-3. انسخ .env.example واضبط SECRET_KEY وMIRAGE_ADMIN_PASSWORD بقيم قوية.
+3. انسخ .env.example واضبط SECRET_KEY عشوائيًا بطول 32 بايت على الأقل وMIRAGE_ADMIN_PASSWORD بكلمة مرور قوية وفريدة. فعّل COOKIE_SECURE=1 خلف HTTPS.
 4. شغّل python app.py ثم افتح /login.
 
 ## البحث والاستخراج

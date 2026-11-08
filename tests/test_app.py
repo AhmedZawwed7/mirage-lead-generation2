@@ -12,6 +12,10 @@ def logged_in():
     client.post("/login", data={"username": "admin", "password": "test-password"})
     return client
 
+def csrf(client):
+    with client.session_transaction() as session_data:
+        return session_data["csrf_token"]
+
 def test_health():
     response = app.app.test_client().get("/health")
     assert response.status_code == 200
@@ -38,7 +42,7 @@ def test_non_http_url_is_blocked():
 def test_cross_origin_mutation_is_blocked():
     client = logged_in()
     response = client.post("/api/search", json={"keyword": "cleaning"},
-                           headers={"Origin": "https://evil.example"})
+                           headers={"Origin": "https://evil.example", "X-CSRF-Token": csrf(client)})
     assert response.status_code == 403
 
 def test_search_saves_and_deduplicates(monkeypatch):
@@ -46,7 +50,7 @@ def test_search_saves_and_deduplicates(monkeypatch):
     row = ("Test Company", "+966501234567", "hello@test.example",
            "https://company.example", "السعودية", "cleaning", 90)
     monkeypatch.setattr(app, "discover", lambda *a: ([row], ""))
-    first = client.post("/api/search", json={"keyword": "cleaning"})
+    first = client.post("/api/search", json={"keyword": "cleaning"}, headers={"X-CSRF-Token": csrf(client)})
     second = client.post("/api/search", json={"keyword": "cleaning"})
     assert first.json["added"] == 1
     assert second.json["added"] == 0
@@ -88,9 +92,9 @@ def test_sales_user_only_edits_assigned_leads(monkeypatch):
     cdb.close()
     client = app.app.test_client()
     client.post("/login", data={"username": username, "password": "long-test-password"})
-    assert client.patch("/api/leads/" + str(own_id), json={"status": "contacted"}).status_code == 200
+    assert client.patch("/api/leads/" + str(own_id), json={"status": "contacted"}, headers={"X-CSRF-Token": csrf(client)}).status_code == 200
     assert client.patch("/api/leads/" + str(other_id), json={"status": "contacted"}).status_code == 403
-    assert client.post("/api/search", json={"keyword": "test"}).status_code == 403
+    assert client.post("/api/search", json={"keyword": "test"}, headers={"X-CSRF-Token": csrf(client)}).status_code == 403
 
 def test_campaign_webhook_requires_secret_and_consent(monkeypatch):
     monkeypatch.setenv("CAMPAIGN_WEBHOOK_TOKEN", "webhook-test-secret")
@@ -141,3 +145,8 @@ def test_robots_txt_can_block_page(monkeypatch):
     app._robots_cache.clear()
     assert app.robots_allowed("https://public.example/private/data") is False
     assert app.robots_allowed("https://public.example/open") is True
+
+def test_authenticated_mutation_requires_csrf():
+    client = logged_in()
+    response = client.post("/api/search", json={"keyword": "csrf"})
+    assert response.status_code == 400
