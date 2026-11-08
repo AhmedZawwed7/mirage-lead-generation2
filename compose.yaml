@@ -1,0 +1,16 @@
+services:
+  mirage:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MIRAGE_DB: /data/mirage.db
+      COOKIE_SECURE: "\${COOKIE_SECURE:-0}"
+    ports:
+      - "8000:8000"
+    volumes:
+      - mirage_data:/data
+
+volumes:
+  mirage_data:
