@@ -18,7 +18,8 @@ https://github.com/AhmedZawwed7/mirage-lead-generation2
 - تصدير CSV وExcel مع الحماية من Formula Injection.
 - استقبال Leads داخليًا من مصادر Google Ads وMeta Ads وTikTok عبر webhook مشترك السر، مع تحقق الموافقة ومنع التكرار.
 - حماية جلسات وCSRF وخصائص أمان HTTP وسجل تدقيق.
-- اختبارات تلقائية عبر GitHub Actions.
+- اختبارات تلقائية عبر GitHub Actions (20 اختبارًا ناجحًا في آخر تشغيل ناجح قبل إضافة خطوة Docker).
+- إعداد Docker وCompose مع volume دائم، وفحص بناء صورة Docker ضمن CI.
 
 ## ما لم يكتمل / لا يجوز اعتباره متصلًا بعد
 - OAuth وWebhooks الرسمية الموثقة من Google Ads وMeta Ads وTikTok.
