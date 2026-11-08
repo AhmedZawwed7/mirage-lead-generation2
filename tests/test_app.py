@@ -80,10 +80,10 @@ def test_sales_user_only_edits_assigned_leads(monkeypatch):
                 (username, app.generate_password_hash("long-test-password"), "sales"))
     own_id = cdb.execute(
         "INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
-        ("Own Lead", "+966500000111", "", "https://own.example", "SA", "test", 60, username)).lastrowid
+        ("Own Lead", "+966501119991", "", "https://own.example", "SA", "test", 60, username)).lastrowid
     other_id = cdb.execute(
         "INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
-        ("Other Lead", "+966500000112", "", "https://other.example", "SA", "test", 60, "someone-else")).lastrowid
+        ("Other Lead", "+966501119992", "", "https://other.example", "SA", "test", 60, "someone-else")).lastrowid
     cdb.commit()
     cdb.close()
     client = app.app.test_client()
@@ -124,10 +124,10 @@ def test_sales_user_cannot_access_unassigned_leads_or_search():
                 (username, app.generate_password_hash("long-test-password"), "sales"))
     own_id = cdb.execute(
         "INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
-        ("Own Lead", "+966500000111", "", "https://own-scope.example", "SA", "test", 60, username)).lastrowid
+        ("Own Lead", "+966501119991", "", "https://own-scope.example", "SA", "test", 60, username)).lastrowid
     other_id = cdb.execute(
         "INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
-        ("Other Lead", "+966500000112", "", "https://other-scope.example", "SA", "test", 60, "another-user")).lastrowid
+        ("Other Lead", "+966501119992", "", "https://other-scope.example", "SA", "test", 60, "another-user")).lastrowid
     cdb.commit()
     cdb.close()
     client = app.app.test_client()
