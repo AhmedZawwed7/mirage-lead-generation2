@@ -1,4 +1,4 @@
-import os, re, sqlite3, io, csv, ipaddress, socket, urllib.parse, hmac
+import os, re, sqlite3, io, csv, ipaddress, socket, urllib.parse, hmac, time, urllib.robotparser
 from functools import wraps
 from flask import Flask, request, session, redirect, url_for, render_template, jsonify, Response, flash
 import requests
@@ -109,10 +109,30 @@ def is_public_url(url):
     except (ValueError, OSError):
         return False
 
+_robots_cache = {}
+_domain_last_fetch = {}
+
+def robots_allowed(url):
+    parsed = urllib.parse.urlparse(url)
+    origin = parsed.scheme + "://" + parsed.netloc
+    if origin not in _robots_cache:
+        robots_url = origin + "/robots.txt"
+        content = safe_fetch(robots_url)
+        parser = urllib.robotparser.RobotFileParser()
+        parser.set_url(robots_url)
+        parser.parse(content.splitlines() if content else [])
+        _robots_cache[origin] = parser
+    return _robots_cache[origin].can_fetch("MirageLeadResearch/1.0", url)
+
 def safe_fetch(url):
     if not is_public_url(url):
         return ""
     try:
+        host = urllib.parse.urlparse(url).netloc
+        elapsed = time.monotonic() - _domain_last_fetch.get(host, 0)
+        if elapsed < 1.0:
+            time.sleep(1.0 - elapsed)
+        _domain_last_fetch[host] = time.monotonic()
         response = requests.get(url, timeout=10, headers={"User-Agent": "MirageLeadResearch/1.0"},
                                 allow_redirects=False, stream=True)
         if 300 <= response.status_code < 400:
@@ -163,7 +183,7 @@ def discover(keyword, country, limit):
     found = []
     for item in results:
         url = item.get("link") or item.get("href") or item.get("url")
-        if not url or not is_public_url(url):
+        if not url or not is_public_url(url) or not robots_allowed(url):
             continue
         html = safe_fetch(url)
         soup = BeautifulSoup(html, "html.parser")
@@ -184,7 +204,7 @@ def discover(keyword, country, limit):
                 label = (anchor.get_text(" ", strip=True) + " " + anchor["href"]).lower()
                 if any(word in label for word in ("contact", "اتصل", "تواصل", "about", "من نحن")):
                     candidate = urllib.parse.urljoin(url, anchor["href"])
-                    if urllib.parse.urlparse(candidate).hostname == host and is_public_url(candidate):
+                    if urllib.parse.urlparse(candidate).hostname == host and is_public_url(candidate) and robots_allowed(candidate):
                         links.append(candidate)
                 if len(links) >= 2:
                     break

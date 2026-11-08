@@ -135,3 +135,9 @@ def test_sales_user_cannot_access_unassigned_leads_or_search():
     assert client.patch("/api/leads/" + str(own_id), json={"status": "contacted"}).status_code == 200
     assert client.patch("/api/leads/" + str(other_id), json={"status": "contacted"}).status_code == 403
     assert client.post("/api/search", json={"keyword": "test"}).status_code == 403
+
+def test_robots_txt_can_block_page(monkeypatch):
+    monkeypatch.setattr(app, "safe_fetch", lambda url: "User-agent: MirageLeadResearch/1.0\nDisallow: /private")
+    app._robots_cache.clear()
+    assert app.robots_allowed("https://public.example/private/data") is False
+    assert app.robots_allowed("https://public.example/open") is True
