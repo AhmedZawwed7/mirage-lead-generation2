@@ -136,10 +136,11 @@ def test_sales_user_cannot_access_unassigned_leads_or_search():
     cdb.commit()
     cdb.close()
     client = app.app.test_client()
-    client.post("/login", data={"username": username, "password": "long-test-password"})
+    login_response = client.post("/login", data={"username": username, "password": "long-test-password"})
+    assert login_response.status_code == 302
     assert client.patch("/api/leads/" + str(own_id), json={"status": "contacted"}, headers={"X-CSRF-Token": csrf(client)}).status_code == 200
     assert client.patch("/api/leads/" + str(other_id), json={"status": "contacted"}, headers={"X-CSRF-Token": csrf(client)}).status_code == 403
-    assert client.post("/api/search", json={"keyword": "test"}).status_code == 403
+    assert client.post("/api/search", json={"keyword": "test"}, headers={"X-CSRF-Token": csrf(client)}).status_code == 403
 
 def test_robots_txt_can_block_page(monkeypatch):
     monkeypatch.setattr(app, "safe_fetch", lambda url: "User-agent: MirageLeadResearch\nDisallow: /private")
