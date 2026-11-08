@@ -77,8 +77,8 @@ def db():
     c.execute("""CREATE TABLE IF NOT EXISTS audit_logs(
         id INTEGER PRIMARY KEY, actor TEXT, action TEXT, entity TEXT, entity_id INTEGER,
         details TEXT DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP)""")
-    if PASSWORD:
-        c.execute("INSERT OR IGNORE INTO users(username,password_hash,role) VALUES(?,?,?)",
+    if PASSWORD and not c.execute("SELECT 1 FROM users WHERE username=?", (ADMIN,)).fetchone():
+        c.execute("INSERT INTO users(username,password_hash,role) VALUES(?,?,?)",
                   (ADMIN, generate_password_hash(PASSWORD), "admin"))
     c.execute("""CREATE TABLE IF NOT EXISTS batches(
         id INTEGER PRIMARY KEY, name TEXT, keyword TEXT, country TEXT,

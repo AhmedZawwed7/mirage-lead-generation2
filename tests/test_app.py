@@ -9,7 +9,8 @@ import app
 
 def logged_in():
     client = app.app.test_client()
-    client.post("/login", data={"username": "admin", "password": "test-password"})
+    response = client.post("/login", data={"username": "admin", "password": "test-password"})
+    assert response.status_code == 302
     return client
 
 def csrf(client):
@@ -51,7 +52,7 @@ def test_search_saves_and_deduplicates(monkeypatch):
            "https://company.example", "السعودية", "cleaning", 90)
     monkeypatch.setattr(app, "discover", lambda *a: ([row], ""))
     first = client.post("/api/search", json={"keyword": "cleaning"}, headers={"X-CSRF-Token": csrf(client)})
-    second = client.post("/api/search", json={"keyword": "cleaning"})
+    second = client.post("/api/search", json={"keyword": "cleaning"}, headers={"X-CSRF-Token": csrf(client)})
     assert first.json["added"] == 1
     assert second.json["added"] == 0
 
@@ -73,8 +74,7 @@ def test_team_requires_admin_or_manager():
     assert app.app.test_client().get("/team").status_code == 302
 
 def test_sales_user_cannot_create_search():
-    c = app.app.test_client()
-    c.post("/login", data={"username": "admin", "password": "test-password"})
+    c = logged_in()
     assert c.get("/team").status_code == 200
 
 def test_sales_user_only_edits_assigned_leads(monkeypatch):
@@ -91,9 +91,10 @@ def test_sales_user_only_edits_assigned_leads(monkeypatch):
     cdb.commit()
     cdb.close()
     client = app.app.test_client()
-    client.post("/login", data={"username": username, "password": "long-test-password"})
+    login_response = client.post("/login", data={"username": username, "password": "long-test-password"})
+    assert login_response.status_code == 302
     assert client.patch("/api/leads/" + str(own_id), json={"status": "contacted"}, headers={"X-CSRF-Token": csrf(client)}).status_code == 200
-    assert client.patch("/api/leads/" + str(other_id), json={"status": "contacted"}).status_code == 403
+    assert client.patch("/api/leads/" + str(other_id), json={"status": "contacted"}, headers={"X-CSRF-Token": csrf(client)}).status_code == 403
     assert client.post("/api/search", json={"keyword": "test"}, headers={"X-CSRF-Token": csrf(client)}).status_code == 403
 
 def test_campaign_webhook_requires_secret_and_consent(monkeypatch):
