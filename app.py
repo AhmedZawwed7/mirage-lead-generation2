@@ -77,20 +77,40 @@ def safe_fetch(url):
     except requests.RequestException:
         return ""
 
-def discover(keyword, country, limit):
-    if DDGS is None:
-        return [], "مكتبة البحث غير مثبتة"
+def search_results(keyword, country, limit):
+    query = keyword + " " + country + " اتصل بنا"
+    serp_key = os.getenv("SERPAPI_KEY")
+    google_key, google_cx = os.getenv("GOOGLE_API_KEY"), os.getenv("GOOGLE_CX")
     try:
-        results = list(DDGS().text(keyword + " " + country + " اتصل بنا",
-                                   max_results=min(max(int(limit), 1), 50)))
+        if serp_key:
+            response = requests.get("https://serpapi.com/search.json",
+                params={"engine": "google", "q": query, "api_key": serp_key, "num": min(int(limit), 50)},
+                timeout=15)
+            response.raise_for_status()
+            return response.json().get("organic_results", []), ""
+        if google_key and google_cx:
+            response = requests.get("https://www.googleapis.com/customsearch/v1",
+                params={"key": google_key, "cx": google_cx, "q": query, "num": min(int(limit), 10)},
+                timeout=15)
+            response.raise_for_status()
+            return response.json().get("items", []), ""
+        if DDGS is None:
+            return [], "اضبط SERPAPI_KEY أو Google API أو ثبّت ddgs لتفعيل البحث."
+        return list(DDGS().text(query, max_results=min(max(int(limit), 1), 50))), ""
     except Exception as exc:
         return [], "فشل مزود البحث: " + type(exc).__name__
+
+def discover(keyword, country, limit):
+    results, error = search_results(keyword, country, limit)
+    if error:
+        return [], error
     found = []
     for item in results:
-        url = item.get("href") or item.get("url")
+        url = item.get("link") or item.get("href") or item.get("url")
         if not url or not is_public_url(url):
             continue
-        soup = BeautifulSoup(safe_fetch(url), "html.parser")
+        html = safe_fetch(url)
+        soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["script", "style", "noscript", "svg"]):
             tag.decompose()
         text = " ".join(soup.stripped_strings)
@@ -99,8 +119,27 @@ def discover(keyword, country, limit):
             digits = re.sub(r"\D", "", phone)
             if 8 <= len(digits) <= 15 and phone not in phones:
                 phones.append(phone)
-        emails = [e.lower() for e in EMAIL.findall(text)
+        emails = [e.lower() for e in EMAIL.findall(html)
                   if "example." not in e.lower() and "sentry" not in e.lower()]
+        if not phones and not emails:
+            host = urllib.parse.urlparse(url).hostname
+            links = []
+            for anchor in soup.find_all("a", href=True):
+                label = (anchor.get_text(" ", strip=True) + " " + anchor["href"]).lower()
+                if any(word in label for word in ("contact", "اتصل", "تواصل", "about", "من نحن")):
+                    candidate = urllib.parse.urljoin(url, anchor["href"])
+                    if urllib.parse.urlparse(candidate).hostname == host and is_public_url(candidate):
+                        links.append(candidate)
+                if len(links) >= 2:
+                    break
+            for contact_url in links:
+                contact_html = safe_fetch(contact_url)
+                phones += [p for p in PHONE.findall(BeautifulSoup(contact_html, "html.parser").get_text(" "))
+                           if 8 <= len(re.sub(r"\D", "", p)) <= 15 and p not in phones]
+                emails += [e.lower() for e in EMAIL.findall(contact_html)
+                           if "example." not in e.lower() and e.lower() not in emails]
+                if phones or emails:
+                    break
         if not phones and not emails:
             continue
         company = soup.title.string.strip()[:180] if soup.title and soup.title.string else item.get("title", "Company")
