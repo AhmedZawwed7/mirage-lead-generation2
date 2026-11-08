@@ -270,6 +270,7 @@ def home():
     params = (session["user"],) if is_sales else ()
     stats = {
         "total": c.execute("SELECT COUNT(*) FROM leads" + where, params).fetchone()[0],
+        "phones": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " phone IS NOT NULL AND phone<>''", params).fetchone()[0],
         "new": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='new'", params).fetchone()[0],
         "contacted": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='contacted'", params).fetchone()[0],
         "qualified": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='qualified'", params).fetchone()[0],
