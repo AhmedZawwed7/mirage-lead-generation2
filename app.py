@@ -177,8 +177,9 @@ def home():
         "qualified": c.execute("SELECT COUNT(*) FROM leads WHERE status='qualified'").fetchone()[0],
     }
     leads = c.execute("SELECT * FROM leads ORDER BY id DESC LIMIT 500").fetchall()
+    batches = c.execute("SELECT * FROM batches ORDER BY id DESC LIMIT 15").fetchall()
     c.close()
-    return render_template("index.html", stats=stats, leads=leads, user=session["user"])
+    return render_template("index.html", stats=stats, leads=leads, batches=batches, user=session["user"])
 
 @app.post("/api/search")
 @auth
