@@ -69,7 +69,7 @@ def db():
     for column, definition in migrations.items():
         if column not in cols:
             c.execute("ALTER TABLE leads ADD COLUMN " + column + " " + definition)
-    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_phone ON leads(phone) WHERE phone IS NOT NULL AND phone <> ''")
+    c.execute("CREATE INDEX IF NOT EXISTS ix_leads_phone ON leads(phone)")
     c.execute("""CREATE TABLE IF NOT EXISTS users(
         id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'sales', active INTEGER DEFAULT 1,
@@ -299,12 +299,14 @@ def search():
     c = db()
     added = 0
     for row in rows:
-        try:
-            c.execute("""INSERT INTO leads(company,phone,email,website,country,keyword,score)
-                         VALUES(?,?,?,?,?,?,?)""", row)
-            added += 1
-        except sqlite3.IntegrityError:
-            pass
+        duplicate = c.execute(
+            "SELECT id FROM leads WHERE (phone=? AND phone<>'') OR (website=? AND website<>'') LIMIT 1",
+            (row[1], row[3])).fetchone()
+        if duplicate:
+            continue
+        c.execute("""INSERT INTO leads(company,phone,email,website,country,keyword,score)
+                     VALUES(?,?,?,?,?,?,?)""", row)
+        added += 1
     c.execute("UPDATE batches SET scanned=?,added=? WHERE id=?", (len(rows), added, batch_id))
     c.commit()
     c.close()
@@ -388,7 +390,10 @@ def campaign_webhook(source):
 @auth
 def export_csv():
     c = db()
-    rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,source,campaign FROM leads ORDER BY id DESC").fetchall()
+    if session.get("role") == "sales":
+        rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,source,campaign FROM leads WHERE owner=? ORDER BY id DESC", (session["user"],)).fetchall()
+    else:
+        rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,source,campaign FROM leads ORDER BY id DESC").fetchall()
     c.close()
     output = io.StringIO()
     writer = csv.writer(output)
@@ -433,7 +438,10 @@ def export_xlsx():
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     c = db()
-    rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,notes,source,campaign FROM leads ORDER BY id DESC").fetchall()
+    if session.get("role") == "sales":
+        rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,notes,source,campaign FROM leads WHERE owner=? ORDER BY id DESC", (session["user"],)).fetchall()
+    else:
+        rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,notes,source,campaign FROM leads ORDER BY id DESC").fetchall()
     c.close()
     workbook = Workbook()
     sheet = workbook.active
