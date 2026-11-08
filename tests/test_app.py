@@ -53,3 +53,14 @@ def test_search_saves_and_deduplicates(monkeypatch):
 
 def test_csv_requires_login():
     assert app.app.test_client().get("/api/leads.csv").status_code == 302
+
+def test_excel_export():
+    client = logged_in()
+    response = client.get("/api/leads.xlsx")
+    assert response.status_code == 200
+    assert response.mimetype == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+def test_security_headers():
+    response = app.app.test_client().get("/health")
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
