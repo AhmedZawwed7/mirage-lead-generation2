@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 DB = os.getenv("MIRAGE_DB", os.path.join(ROOT, "instance", "mirage.db"))
 os.makedirs(os.path.dirname(DB), exist_ok=True)
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "dev-secret-change-this-before-deploying-123")
+app.secret_key = os.getenv("SECRET_KEY") or os.urandom(32)
 ADMIN = os.getenv("MIRAGE_ADMIN_USER", "admin")
 PASSWORD = os.getenv("MIRAGE_ADMIN_PASSWORD", "")
 PHONE = re.compile(r"(?<![\w/])(\+?\d[\d\s().-]{7,17}\d)(?![\w/])")
@@ -48,9 +48,8 @@ def is_public_url(url):
             return False
         if p.port and p.port not in (80, 443):
             return False
-        return bool(socket.getaddrinfo(p.hostname, None)) and all(
-            ipaddress.ip_address(item[4][0]).is_global for item in socket.getaddrinfo(p.hostname, None)
-        )
+        addresses = socket.getaddrinfo(p.hostname, None)
+        return bool(addresses) and all(ipaddress.ip_address(x[4][0]).is_global for x in addresses)
     except (ValueError, OSError):
         return False
 
