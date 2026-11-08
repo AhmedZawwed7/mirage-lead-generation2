@@ -45,6 +45,9 @@ def db():
         country TEXT, keyword TEXT, score INTEGER DEFAULT 0, status TEXT DEFAULT 'new',
         owner TEXT DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(phone, website))""")
+    cols = {row[1] for row in c.execute("PRAGMA table_info(leads)")}
+    if "notes" not in cols:
+        c.execute("ALTER TABLE leads ADD COLUMN notes TEXT DEFAULT ''")
     c.execute("""CREATE TABLE IF NOT EXISTS batches(
         id INTEGER PRIMARY KEY, name TEXT, keyword TEXT, country TEXT,
         created TEXT DEFAULT CURRENT_TIMESTAMP, scanned INTEGER DEFAULT 0, added INTEGER DEFAULT 0)""")
@@ -231,7 +234,7 @@ def search():
 @auth
 def update_lead(lead_id):
     data = request.get_json(silent=True) or {}
-    data = {k: v for k, v in data.items() if k in ("status", "owner")}
+    data = {k: v for k, v in data.items() if k in ("status", "owner", "notes")}
     if not data:
         return jsonify(error="لا توجد تغييرات صالحة"), 400
     if "status" in data and data["status"] not in ("new", "contacted", "qualified", "won", "lost", "optout"):
@@ -258,6 +261,41 @@ def export_csv():
                          for value in row])
     return Response("\ufeff" + output.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=mirage-leads.csv"})
+
+
+@app.get("/api/leads.xlsx")
+@auth
+def export_xlsx():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    c = db()
+    rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,notes FROM leads ORDER BY id DESC").fetchall()
+    c.close()
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Mirage Leads"
+    headers = ["Company", "Phone", "Email", "Website", "Country", "Keyword", "Score", "Status", "Owner", "Notes"]
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="263B68")
+    for row in rows:
+        values = []
+        for value in row:
+            if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+                value = "'" + value
+            values.append(value)
+        sheet.append(values)
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for column, width in zip("ABCDEFGHIJ", [28, 20, 28, 40, 16, 22, 10, 16, 20, 40]):
+        sheet.column_dimensions[column].width = width
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return Response(output.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=mirage-leads.xlsx"})
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=int(os.getenv("PORT", 5000)), debug=False)
