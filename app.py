@@ -249,6 +249,7 @@ def search():
     c = db()
     batch_id = c.execute("INSERT INTO batches(name,keyword,country) VALUES(?,?,?)",
                          (keyword + " - " + country, keyword, country)).lastrowid
+    audit(c, "search.started", "batch", batch_id, keyword + " | " + country)
     c.commit()
     c.close()
     rows, error = discover(keyword, country, data.get("limit", 25))
@@ -275,9 +276,14 @@ def update_lead(lead_id):
     data = {k: v for k, v in data.items() if k in allowed}
     if not data:
         return jsonify(error="لا توجد تغييرات صالحة"), 400
-    if "status" in data and data["status"] not in ("new", "contacted", "qualified", "won", "lost", "optout"):
+    if "status" in data and data["status"] not in ("new", "assigned", "contacted", "qualified", "demo", "won", "lost", "optout"):
         return jsonify(error="حالة غير صالحة"), 400
     c = db()
+    if "owner" in data and data["owner"]:
+        assignee = c.execute("SELECT role FROM users WHERE username=? AND active=1", (data["owner"],)).fetchone()
+        if not assignee or assignee["role"] != "sales":
+            c.close()
+            return jsonify(error="اختر موظف مبيعات نشطًا من الفريق"), 400
     lead = c.execute("SELECT owner FROM leads WHERE id=?", (lead_id,)).fetchone()
     if not lead:
         c.close()

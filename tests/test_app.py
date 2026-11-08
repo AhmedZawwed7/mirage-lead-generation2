@@ -72,3 +72,22 @@ def test_sales_user_cannot_create_search():
     c = app.app.test_client()
     c.post("/login", data={"username": "admin", "password": "test-password"})
     assert c.get("/team").status_code == 200
+
+def test_sales_user_only_edits_assigned_leads(monkeypatch):
+    cdb = app.db()
+    username = "sales-" + str(os.getpid())
+    cdb.execute("INSERT OR REPLACE INTO users(username,password_hash,role,active) VALUES(?,?,?,1)",
+                (username, app.generate_password_hash("long-test-password"), "sales"))
+    own_id = cdb.execute(
+        "INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
+        ("Own Lead", "+966500000111", "", "https://own.example", "SA", "test", 60, username)).lastrowid
+    other_id = cdb.execute(
+        "INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
+        ("Other Lead", "+966500000112", "", "https://other.example", "SA", "test", 60, "someone-else")).lastrowid
+    cdb.commit()
+    cdb.close()
+    client = app.app.test_client()
+    client.post("/login", data={"username": username, "password": "long-test-password"})
+    assert client.patch("/api/leads/" + str(own_id), json={"status": "contacted"}).status_code == 200
+    assert client.patch("/api/leads/" + str(other_id), json={"status": "contacted"}).status_code == 403
+    assert client.post("/api/search", json={"keyword": "test"}).status_code == 403
