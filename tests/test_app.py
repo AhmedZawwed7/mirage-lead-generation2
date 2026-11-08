@@ -152,3 +152,24 @@ def test_authenticated_mutation_requires_csrf():
     client = logged_in()
     response = client.post("/api/search", json={"keyword": "csrf"})
     assert response.status_code == 400
+
+def test_sales_csv_export_is_scoped_to_assigned_leads():
+    cdb = app.db()
+    suffix = str(os.getpid())[-7:]
+    username = "export-sales-" + suffix
+    own_phone = "+2010" + suffix
+    other_phone = "+2011" + suffix
+    cdb.execute("INSERT OR REPLACE INTO users(username,password_hash,role,active) VALUES(?,?,?,1)",
+                (username, app.generate_password_hash("long-test-password"), "sales"))
+    cdb.execute("INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
+                ("Visible Company", own_phone, "", "https://visible-" + suffix + ".example", "EG", "test", 60, username))
+    cdb.execute("INSERT INTO leads(company,phone,email,website,country,keyword,score,owner) VALUES(?,?,?,?,?,?,?,?)",
+                ("Private Company", other_phone, "", "https://private-" + suffix + ".example", "EG", "test", 60, "other-sales"))
+    cdb.commit()
+    cdb.close()
+    client = app.app.test_client()
+    client.post("/login", data={"username": username, "password": "long-test-password"})
+    response = client.get("/api/leads.csv")
+    body = response.get_data(as_text=True)
+    assert "Visible Company" in body
+    assert "Private Company" not in body

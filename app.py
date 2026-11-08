@@ -371,6 +371,12 @@ def campaign_webhook(source):
         if prior:
             c.close()
             return jsonify(ok=True, duplicate=True, lead_id=prior["id"]), 200
+    prior_contact = c.execute(
+        "SELECT id FROM leads WHERE (phone=? AND phone<>'') OR (email=? AND email<>'') LIMIT 1",
+        (phone, email)).fetchone()
+    if prior_contact:
+        c.close()
+        return jsonify(ok=True, duplicate=True, lead_id=prior_contact["id"]), 200
     try:
         cur = c.execute("""INSERT INTO leads(company,phone,email,website,country,keyword,score,source,campaign,external_id,consent)
             VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
