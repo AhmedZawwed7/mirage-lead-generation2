@@ -122,7 +122,7 @@ def robots_allowed(url):
         parser.set_url(robots_url)
         parser.parse(content.splitlines() if content else [])
         _robots_cache[origin] = parser
-    return _robots_cache[origin].can_fetch("MirageLeadResearch/1.0", url)
+    return _robots_cache[origin].can_fetch("MirageLeadResearch", url)
 
 def safe_fetch(url):
     if not is_public_url(url):
