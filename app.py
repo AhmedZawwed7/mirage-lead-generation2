@@ -3,6 +3,7 @@ from functools import wraps
 from flask import Flask, request, session, redirect, url_for, render_template, jsonify, Response, flash
 import requests
 from bs4 import BeautifulSoup
+from werkzeug.security import generate_password_hash, check_password_hash
 
 try:
     from ddgs import DDGS
@@ -48,6 +49,16 @@ def db():
     cols = {row[1] for row in c.execute("PRAGMA table_info(leads)")}
     if "notes" not in cols:
         c.execute("ALTER TABLE leads ADD COLUMN notes TEXT DEFAULT ''")
+    c.execute("""CREATE TABLE IF NOT EXISTS users(
+        id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'sales', active INTEGER DEFAULT 1,
+        created TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS audit_logs(
+        id INTEGER PRIMARY KEY, actor TEXT, action TEXT, entity TEXT, entity_id INTEGER,
+        details TEXT DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    if PASSWORD:
+        c.execute("INSERT OR IGNORE INTO users(username,password_hash,role) VALUES(?,?,?)",
+                  (ADMIN, generate_password_hash(PASSWORD), "admin"))
     c.execute("""CREATE TABLE IF NOT EXISTS batches(
         id INTEGER PRIMARY KEY, name TEXT, keyword TEXT, country TEXT,
         created TEXT DEFAULT CURRENT_TIMESTAMP, scanned INTEGER DEFAULT 0, added INTEGER DEFAULT 0)""")
@@ -61,6 +72,20 @@ def auth(fn):
             return redirect(url_for("login"))
         return fn(*args, **kwargs)
     return wrapped
+
+def role_required(*roles):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            if session.get("role") not in roles:
+                return jsonify(error="ليست لديك صلاحية لتنفيذ هذا الإجراء"), 403
+            return fn(*args, **kwargs)
+        return wrapped
+    return decorator
+
+def audit(c, action, entity, entity_id=None, details=""):
+    c.execute("INSERT INTO audit_logs(actor,action,entity,entity_id,details) VALUES(?,?,?,?,?)",
+              (session.get("user", "system"), action, entity, entity_id, details))
 
 def is_public_url(url):
     try:
@@ -175,11 +200,17 @@ def health():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    c = db()
     if request.method == "POST":
-        if PASSWORD and hmac.compare_digest(request.form.get("username", ""), ADMIN) and hmac.compare_digest(request.form.get("password", ""), PASSWORD):
-            session["user"] = ADMIN
+        username = request.form.get("username", "").strip()
+        user = c.execute("SELECT * FROM users WHERE username=? AND active=1", (username,)).fetchone()
+        if user and check_password_hash(user["password_hash"], request.form.get("password", "")):
+            session["user"] = user["username"]
+            session["role"] = user["role"]
+            c.close()
             return redirect("/")
-        flash("بيانات الدخول غير صحيحة أو لم يتم إعداد كلمة المرور.")
+        flash("بيانات الدخول غير صحيحة أو الحساب موقوف.")
+    c.close()
     return render_template("login.html")
 
 @app.get("/logout")
@@ -191,19 +222,24 @@ def logout():
 @auth
 def home():
     c = db()
+    is_sales = session.get("role") == "sales"
+    where = " WHERE owner=?" if is_sales else ""
+    params = (session["user"],) if is_sales else ()
     stats = {
-        "total": c.execute("SELECT COUNT(*) FROM leads").fetchone()[0],
-        "new": c.execute("SELECT COUNT(*) FROM leads WHERE status='new'").fetchone()[0],
-        "contacted": c.execute("SELECT COUNT(*) FROM leads WHERE status='contacted'").fetchone()[0],
-        "qualified": c.execute("SELECT COUNT(*) FROM leads WHERE status='qualified'").fetchone()[0],
+        "total": c.execute("SELECT COUNT(*) FROM leads" + where, params).fetchone()[0],
+        "new": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='new'", params).fetchone()[0],
+        "contacted": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='contacted'", params).fetchone()[0],
+        "qualified": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='qualified'", params).fetchone()[0],
     }
-    leads = c.execute("SELECT * FROM leads ORDER BY id DESC LIMIT 500").fetchall()
+    leads = c.execute("SELECT * FROM leads" + where + " ORDER BY id DESC LIMIT 500", params).fetchall()
     batches = c.execute("SELECT * FROM batches ORDER BY id DESC LIMIT 15").fetchall()
     c.close()
-    return render_template("index.html", stats=stats, leads=leads, batches=batches, user=session["user"])
+    return render_template("index.html", stats=stats, leads=leads, batches=batches,
+                           user=session["user"], role=session["role"])
 
 @app.post("/api/search")
 @auth
+@role_required("admin", "manager", "researcher")
 def search():
     data = request.get_json(silent=True) or request.form
     keyword = (data.get("keyword") or "").strip()
@@ -234,18 +270,27 @@ def search():
 @auth
 def update_lead(lead_id):
     data = request.get_json(silent=True) or {}
-    data = {k: v for k, v in data.items() if k in ("status", "owner", "notes")}
+    role = session.get("role")
+    allowed = ("status", "notes") if role == "sales" else ("status", "owner", "notes")
+    data = {k: v for k, v in data.items() if k in allowed}
     if not data:
         return jsonify(error="لا توجد تغييرات صالحة"), 400
     if "status" in data and data["status"] not in ("new", "contacted", "qualified", "won", "lost", "optout"):
         return jsonify(error="حالة غير صالحة"), 400
     c = db()
+    lead = c.execute("SELECT owner FROM leads WHERE id=?", (lead_id,)).fetchone()
+    if not lead:
+        c.close()
+        return jsonify(error="العميل غير موجود"), 404
+    if role == "sales" and lead["owner"] != session["user"]:
+        c.close()
+        return jsonify(error="هذا العميل غير مسند إليك"), 403
     c.execute("UPDATE leads SET " + ",".join(k + "=?" for k in data) + " WHERE id=?",
               (*data.values(), lead_id))
-    changed = c.total_changes
+    audit(c, "lead.updated", "lead", lead_id, ",".join(data.keys()))
     c.commit()
     c.close()
-    return jsonify(ok=bool(changed))
+    return jsonify(ok=True)
 
 @app.get("/api/leads.csv")
 @auth
@@ -262,6 +307,33 @@ def export_csv():
     return Response("\ufeff" + output.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment; filename=mirage-leads.csv"})
 
+
+
+@app.route("/team", methods=["GET", "POST"])
+@auth
+def team():
+    if session.get("role") not in ("admin", "manager"):
+        return "Forbidden", 403
+    c = db()
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        role = request.form.get("role", "sales")
+        allowed = ("sales", "researcher") if session["role"] == "manager" else ("manager", "sales", "researcher")
+        if len(username) < 3 or len(password) < 12 or role not in allowed:
+            flash("اسم المستخدم 3 أحرف على الأقل وكلمة المرور 12 حرفًا على الأقل.")
+        else:
+            try:
+                cur = c.execute("INSERT INTO users(username,password_hash,role) VALUES(?,?,?)",
+                                (username, generate_password_hash(password), role))
+                audit(c, "user.created", "user", cur.lastrowid, role)
+                c.commit()
+                flash("تم إنشاء المستخدم.")
+            except sqlite3.IntegrityError:
+                flash("اسم المستخدم موجود بالفعل.")
+    users = c.execute("SELECT id,username,role,active,created FROM users ORDER BY id").fetchall()
+    c.close()
+    return render_template("team.html", users=users, user=session["user"], role=session["role"])
 
 @app.get("/api/leads.xlsx")
 @auth

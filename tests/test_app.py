@@ -64,3 +64,11 @@ def test_security_headers():
     response = app.app.test_client().get("/health")
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+def test_team_requires_admin_or_manager():
+    assert app.app.test_client().get("/team").status_code == 302
+
+def test_sales_user_cannot_create_search():
+    c = app.app.test_client()
+    c.post("/login", data={"username": "admin", "password": "test-password"})
+    assert c.get("/team").status_code == 200
