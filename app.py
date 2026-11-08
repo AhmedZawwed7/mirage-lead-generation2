@@ -44,11 +44,21 @@ def db():
     c.execute("""CREATE TABLE IF NOT EXISTS leads(
         id INTEGER PRIMARY KEY, company TEXT, phone TEXT, email TEXT, website TEXT,
         country TEXT, keyword TEXT, score INTEGER DEFAULT 0, status TEXT DEFAULT 'new',
-        owner TEXT DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP,
+        owner TEXT DEFAULT '', source TEXT DEFAULT 'website', campaign TEXT DEFAULT '',
+        external_id TEXT DEFAULT '', consent TEXT DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(phone, website))""")
     cols = {row[1] for row in c.execute("PRAGMA table_info(leads)")}
-    if "notes" not in cols:
-        c.execute("ALTER TABLE leads ADD COLUMN notes TEXT DEFAULT ''")
+    migrations = {
+        "notes": "TEXT DEFAULT ''",
+        "source": "TEXT DEFAULT 'website'",
+        "campaign": "TEXT DEFAULT ''",
+        "external_id": "TEXT DEFAULT ''",
+        "consent": "TEXT DEFAULT ''",
+    }
+    for column, definition in migrations.items():
+        if column not in cols:
+            c.execute("ALTER TABLE leads ADD COLUMN " + column + " " + definition)
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_leads_phone ON leads(phone) WHERE phone IS NOT NULL AND phone <> ''")
     c.execute("""CREATE TABLE IF NOT EXISTS users(
         id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'sales', active INTEGER DEFAULT 1,
@@ -298,15 +308,58 @@ def update_lead(lead_id):
     c.close()
     return jsonify(ok=True)
 
+
+@app.post("/api/webhooks/leads/<source>")
+def campaign_webhook(source):
+    if source not in ("google_ads", "meta_ads", "tiktok_ads"):
+        return jsonify(error="مصدر الحملة غير مدعوم"), 404
+    secret = os.getenv("CAMPAIGN_WEBHOOK_TOKEN", "")
+    supplied = request.headers.get("X-Mirage-Webhook-Token", "")
+    if not secret:
+        return jsonify(error="تكامل استقبال الحملات غير مهيأ"), 503
+    if not hmac.compare_digest(supplied, secret):
+        return jsonify(error="غير مصرح"), 401
+    data = request.get_json(silent=True) or {}
+    consent = data.get("consent") is True or str(data.get("consent", "")).lower() == "true"
+    phone = str(data.get("phone", "")).strip()
+    email = str(data.get("email", "")).strip().lower()
+    if not consent:
+        return jsonify(error="يجب تأكيد موافقة صاحب البيانات على التواصل"), 400
+    if not phone and not email:
+        return jsonify(error="رقم الهاتف أو البريد مطلوب"), 400
+    c = db()
+    external_id = str(data.get("external_id", "")).strip()
+    if external_id:
+        prior = c.execute("SELECT id FROM leads WHERE source=? AND external_id=?",
+                          (source, external_id)).fetchone()
+        if prior:
+            c.close()
+            return jsonify(ok=True, duplicate=True, lead_id=prior["id"]), 200
+    try:
+        cur = c.execute("""INSERT INTO leads(company,phone,email,website,country,keyword,score,source,campaign,external_id,consent)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (str(data.get("company") or data.get("name") or "عميل حملة")[:180],
+             phone, email, str(data.get("website", ""))[:500],
+             str(data.get("country", ""))[:80], str(data.get("campaign", source))[:180],
+             60, source, str(data.get("campaign", ""))[:180], external_id, "granted"))
+        audit(c, "campaign.lead.created", "lead", cur.lastrowid, source)
+        c.commit()
+        lead_id = cur.lastrowid
+    except sqlite3.IntegrityError:
+        c.close()
+        return jsonify(ok=True, duplicate=True), 200
+    c.close()
+    return jsonify(ok=True, duplicate=False, lead_id=lead_id), 201
+
 @app.get("/api/leads.csv")
 @auth
 def export_csv():
     c = db()
-    rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner FROM leads ORDER BY id DESC").fetchall()
+    rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,source,campaign FROM leads ORDER BY id DESC").fetchall()
     c.close()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(rows[0].keys() if rows else ["company","phone","email","website","country","keyword","score","status","owner"])
+    writer.writerow(rows[0].keys() if rows else ["company","phone","email","website","country","keyword","score","status","owner","source","campaign"])
     for row in rows:
         writer.writerow([("'" + value if isinstance(value, str) and value.startswith(("=", "+", "-", "@")) else value)
                          for value in row])
@@ -347,12 +400,12 @@ def export_xlsx():
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     c = db()
-    rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,notes FROM leads ORDER BY id DESC").fetchall()
+    rows = c.execute("SELECT company,phone,email,website,country,keyword,score,status,owner,notes,source,campaign FROM leads ORDER BY id DESC").fetchall()
     c.close()
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Mirage Leads"
-    headers = ["Company", "Phone", "Email", "Website", "Country", "Keyword", "Score", "Status", "Owner", "Notes"]
+    headers = ["Company", "Phone", "Email", "Website", "Country", "Keyword", "Score", "Status", "Owner", "Notes", "Source", "Campaign"]
     sheet.append(headers)
     for cell in sheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
@@ -366,7 +419,7 @@ def export_xlsx():
         sheet.append(values)
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
-    for column, width in zip("ABCDEFGHIJ", [28, 20, 28, 40, 16, 22, 10, 16, 20, 40]):
+    for column, width in zip("ABCDEFGHIJKL", [28, 20, 28, 40, 16, 22, 10, 16, 20, 40, 18, 24]):
         sheet.column_dimensions[column].width = width
     output = io.BytesIO()
     workbook.save(output)
