@@ -1,19 +1,27 @@
 # Mirage Leads Hunter
 
-Arabic-first company lead discovery and contact extraction platform.
+منصة لإدارة البحث عن الشركات والعملاء المحتملين واستخراج بيانات التواصل العامة، مع إدارة دفعات البحث وتوزيع العملاء على فريق المبيعات.
 
-## cPanel package
-The ready-to-upload package is named `Mirage-Leads-Hunter-Ready-for-cPanel.zip`.
+## المستودع
+- الفرع الرئيسي: `main`
+- [نطاق النسخة النهائية](docs/FINAL_SCOPE_AR.md)
+- [البنية التقنية](docs/ARCHITECTURE_AR.md)
+- [قائمة تحقق الإصدار](docs/RELEASE_CHECKLIST_AR.md)
+- [حالة المشروع](docs/PROJECT_STATUS_AR.md)
+- [سياسة الأمان](SECURITY.md)
 
-## Deploy on cPanel
-1. Upload and extract the package into your application directory.
-2. Create a Python application in cPanel and select the application root.
-3. Install dependencies from `requirements.txt`.
-4. Configure environment variables using `.env.example` as a template. Never commit real credentials or API keys.
-5. Set Passenger startup file to `passenger_wsgi.py` and restart the application.
+## الوظائف المستهدفة
+- البحث حسب الدولة والمدينة والكلمات المفتاحية والخدمات.
+- استخراج الهاتف والبريد والموقع مع حفظ مصدر كل معلومة.
+- تقييم العملاء، إدارة دفعات مستقلة، ومنع التكرار مع الاحتفاظ بالمصادر.
+- توزيع العملاء على المبيعات وتسجيل المتابعة والنتائج.
+- استيراد وتصدير CSV/Excel وتقارير أداء.
+- واجهة عربية RTL مع دعم الإنجليزية.
 
-## Security
-- Do not commit `.env`, credentials, API keys, database files, or runtime data.
-- WhatsApp Web automation is not enabled in cPanel mode.
+## الجودة
+GitHub Actions يفحص صياغة Python ويشغّل اختبارات pytest عند كل Push وPull Request.
 
-See `README_AR.md` inside the package for the full Arabic setup guide.
+## الأمان
+لا ترفع ملفات `.env` أو كلمات المرور أو مفاتيح API أو قواعد البيانات أو صادرات العملاء. استخدم `.env.example` بقيم وهمية فقط.
+
+> **حالة الإصدار:** المستودع يحتوي حاليًا على وثائق النطاق والبنية والأمان والتحقق الآلي. لا يُعلن التطبيق مكتملًا أو منشورًا حتى تُرفع ملفات التطبيق الفعلية وتنجح اختبارات التشغيل والتكامل على PostgreSQL. راجع [حالة المشروع](docs/PROJECT_STATUS_AR.md).
