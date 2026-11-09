@@ -276,6 +276,8 @@ def home():
         "new": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='new'", params).fetchone()[0],
         "contacted": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='contacted'", params).fetchone()[0],
         "qualified": c.execute("SELECT COUNT(*) FROM leads" + where + (" AND" if where else " WHERE") + " status='qualified'", params).fetchone()[0],
+        "open_tasks": c.execute("SELECT COUNT(*) FROM tasks WHERE status='open' AND " + ("assigned_to=?" if is_sales else "1=1"), (session["user"],) if is_sales else ()).fetchone()[0],
+        "overdue_tasks": c.execute("SELECT COUNT(*) FROM tasks WHERE status='open' AND due_at < datetime('now','localtime') AND " + ("assigned_to=?" if is_sales else "1=1"), (session["user"],) if is_sales else ()).fetchone()[0],
     }
     leads = c.execute("SELECT * FROM leads" + where + " ORDER BY id DESC LIMIT 500", params).fetchall()
     batches = c.execute("SELECT * FROM batches ORDER BY id DESC LIMIT 15").fetchall()
@@ -380,6 +382,16 @@ def lead_activities(lead_id):
     row = c.execute("SELECT id,actor,activity_type,note,created FROM activities WHERE id=?", (cur.lastrowid,)).fetchone()
     c.close()
     return jsonify(ok=True, activity=dict(row)), 201
+
+
+@app.get("/api/sales-users")
+@auth
+@role_required("admin", "manager")
+def sales_users():
+    c = db()
+    rows = c.execute("SELECT username FROM users WHERE active=1 AND role='sales' ORDER BY username").fetchall()
+    c.close()
+    return jsonify(users=[row["username"] for row in rows])
 
 @app.route("/api/tasks", methods=["GET", "POST"])
 @auth
