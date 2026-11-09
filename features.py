@@ -31,8 +31,14 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
                "phone":c.execute("SELECT COUNT(*) FROM leads WHERE COALESCE(phone,'')<>''").fetchone()[0],
                "email":c.execute("SELECT COUNT(*) FROM leads WHERE COALESCE(email,'')<>''").fetchone()[0],
                "optout":c.execute("SELECT COUNT(*) FROM leads WHERE status='optout'").fetchone()[0]}
+        activities=[];tasks=[];wa_logs=[]
+        if section=="activity":
+            c.execute("CREATE TABLE IF NOT EXISTS wa_log(id INTEGER PRIMARY KEY,lead_id INTEGER,phone TEXT,ok INTEGER,note TEXT,created TEXT DEFAULT CURRENT_TIMESTAMP)")
+            activities=c.execute("SELECT a.id,a.actor,a.activity_type,a.note,a.created,l.company FROM activities a LEFT JOIN leads l ON l.id=a.lead_id ORDER BY a.id DESC LIMIT 150").fetchall()
+            tasks=c.execute("SELECT t.id,t.title,t.due_at,t.status,t.assigned_to,l.company FROM tasks t LEFT JOIN leads l ON l.id=t.lead_id ORDER BY t.id DESC LIMIT 100").fetchall()
+            wa_logs=c.execute("SELECT w.id,w.phone,w.ok,w.note,w.created,l.company FROM wa_log w LEFT JOIN leads l ON l.id=w.lead_id ORDER BY w.id DESC LIMIT 100").fetchall()
         c.close()
-        return render_template("features.html",section=section,leads=leads,stats=stats,countries=COUNTRIES)
+        return render_template("features.html",section=section,leads=leads,stats=stats,countries=COUNTRIES,activities=activities,tasks=tasks,wa_logs=wa_logs)
 
     for section in ("search","leads","whatsapp","email","activity","statistics"):
         def view(s=section): return render_page(s)
