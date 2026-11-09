@@ -591,5 +591,11 @@ def export_xlsx():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=mirage-leads.xlsx"})
 
+
+
+# Register the additional capabilities from the original Mirage Hunter package.
+from features import register_features
+register_features(app, db, auth, role_required, audit, safe_fetch, is_public_url, robots_allowed)
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=int(os.getenv("PORT", 5000)), debug=False)
