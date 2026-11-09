@@ -63,6 +63,8 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
     def render_page(section):
         if section in ("whatsapp","email") and session.get("role") not in ("admin","manager"):
             return redirect("/leads")
+        if section=="search" and session.get("role") not in ("admin","manager","researcher"):
+            return redirect("/leads")
         c=db()
         batch_filter=request.args.get("batch",type=int)
         is_sales=session.get("role")=="sales"
