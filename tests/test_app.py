@@ -205,3 +205,28 @@ def test_crm_activities_tasks_and_sales_scope():
     assert client.get("/api/tasks").json["tasks"][0]["status"] == "done"
     assert client.post("/api/tasks", json={"lead_id": other, "title": "اختراق نطاق",
                         "due_at": "2026-11-10T10:00"}, headers=headers).status_code == 403
+
+
+def test_tasks_validate_due_date_and_follow_lead_assignment():
+    cdb = app.db()
+    suffix = str(os.getpid())
+    username = "task-owner-" + suffix
+    cdb.execute("INSERT OR REPLACE INTO users(username,password_hash,role,active) VALUES(?,?,?,1)",
+                (username, app.generate_password_hash("long-test-password"), "sales"))
+    lead_id = cdb.execute("INSERT INTO leads(company,phone,website,owner) VALUES(?,?,?,?)",
+                          ("Task Scope", "+20122222" + suffix[-5:], "https://task-scope-" + suffix + ".example", username)).lastrowid
+    cdb.commit()
+    cdb.close()
+    client = app.app.test_client()
+    client.post("/login", data={"username": username, "password": "long-test-password"})
+    headers = {"X-CSRF-Token": csrf(client)}
+    invalid = client.post("/api/tasks", json={"lead_id": lead_id, "title": "Bad date", "due_at": "tomorrow"}, headers=headers)
+    assert invalid.status_code == 400
+    valid = client.post("/api/tasks", json={"lead_id": lead_id, "title": "Valid task", "due_at": "2026-11-10T10:00"}, headers=headers)
+    assert valid.status_code == 201
+    cdb = app.db()
+    cdb.execute("UPDATE leads SET owner='new-owner' WHERE id=?", (lead_id,))
+    cdb.commit()
+    cdb.close()
+    assert client.get("/api/tasks").json["tasks"] == []
+    assert client.patch(f"/api/tasks/{valid.json['task']['id']}", json={"status": "done"}, headers=headers).status_code == 403

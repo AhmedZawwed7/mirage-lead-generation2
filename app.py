@@ -1,4 +1,4 @@
-import os, re, sqlite3, io, csv, ipaddress, socket, urllib.parse, hmac, time, urllib.robotparser, secrets
+import os, re, sqlite3, io, csv, ipaddress, socket, urllib.parse, hmac, time, urllib.robotparser, secrets, datetime
 from functools import wraps
 from flask import Flask, request, session, redirect, url_for, render_template, jsonify, Response, flash
 import requests
@@ -399,7 +399,7 @@ def tasks():
     c = db()
     if request.method == "GET":
         if session.get("role") == "sales":
-            rows = c.execute("SELECT t.*,l.company FROM tasks t JOIN leads l ON l.id=t.lead_id WHERE t.assigned_to=? ORDER BY t.due_at LIMIT 200", (session["user"],)).fetchall()
+            rows = c.execute("SELECT t.*,l.company FROM tasks t JOIN leads l ON l.id=t.lead_id WHERE t.assigned_to=? AND l.owner=? ORDER BY t.due_at LIMIT 200", (session["user"], session["user"])).fetchall()
         else:
             rows = c.execute("SELECT t.*,l.company FROM tasks t JOIN leads l ON l.id=t.lead_id ORDER BY t.due_at LIMIT 300").fetchall()
         c.close()
@@ -419,11 +419,19 @@ def tasks():
     if not title or len(title) > 180 or not due:
         c.close()
         return jsonify(error="عنوان المهمة والموعد مطلوبان"), 400
+    try:
+        datetime.datetime.fromisoformat(due)
+    except ValueError:
+        c.close()
+        return jsonify(error="صيغة الموعد غير صحيحة؛ استخدم YYYY-MM-DDTHH:MM"), 400
     if session.get("role") != "sales":
         user = c.execute("SELECT role FROM users WHERE username=? AND active=1", (assignee,)).fetchone()
         if not user or user["role"] != "sales":
             c.close()
             return jsonify(error="اختر موظف مبيعات نشطاً"), 400
+        if lead["owner"] != assignee:
+            c.close()
+            return jsonify(error="يجب إسناد العميل إلى موظف المبيعات قبل إنشاء المتابعة"), 400
     cur = c.execute("INSERT INTO tasks(lead_id,assigned_to,title,due_at,created_by) VALUES(?,?,?,?,?)",
                     (lead_id, assignee, title, due[:40], session["user"]))
     audit(c, "task.created", "lead", lead_id, title)
@@ -439,11 +447,11 @@ def update_task(task_id):
     if status not in ("open", "done", "cancelled"):
         return jsonify(error="حالة المهمة غير صالحة"), 400
     c = db()
-    task = c.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+    task = c.execute("SELECT t.*,l.owner AS lead_owner FROM tasks t JOIN leads l ON l.id=t.lead_id WHERE t.id=?", (task_id,)).fetchone()
     if not task:
         c.close()
         return jsonify(error="المهمة غير موجودة"), 404
-    if session.get("role") == "sales" and task["assigned_to"] != session["user"]:
+    if session.get("role") == "sales" and (task["assigned_to"] != session["user"] or task["lead_owner"] != session["user"]):
         c.close()
         return jsonify(error="هذه المهمة ليست مسندة إليك"), 403
     c.execute("UPDATE tasks SET status=? WHERE id=?", (status, task_id))
