@@ -40,7 +40,7 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         app.add_url_rule("/"+section,endpoint=view.__name__,view_func=auth(view))
 
     def phone_digits(value):
-        d=re.sub(r"\\D","",value or "")
+        d=re.sub(r"\D","",value or "")
         return d if 8<=len(d)<=15 else ""
 
     def get_results(query,country,engine,lang,limit):
@@ -116,8 +116,8 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
                             if name=="شركة بدون اسم" and soup.title and soup.title.string:name=soup.title.string.strip()[:180]
                             txt=" ".join(soup.stripped_strings)
                             if not phone:
-                                phone=next((p for p in re.findall(r"(?<![\\w/])(\\+?\\d[\\d\\s().-]{7,17}\\d)(?![\\w/])",txt) if phone_digits(p)),"")
-                            email=next((e.lower() for e in re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",html) if "example." not in e.lower() and "sentry" not in e.lower()),"")
+                                phone=next((p for p in re.findall(r"(?<![\w/])(\+?\d[\d\s().-]{7,17}\d)(?![\w/])",txt) if phone_digits(p)),"")
+                            email=next((e.lower() for e in re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",html) if "example." not in e.lower() and "sentry" not in e.lower()),"")
                     pn=phone_digits(phone);en=email.lower()
                     if not pn and not en and not host:continue
                     if (pn and pn in seen_p) or (en and en in seen_e) or (host and host in seen_h):duplicates+=1;continue
