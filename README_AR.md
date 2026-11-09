@@ -79,7 +79,7 @@
 
 - On Vercel, connect the project to Neon. The integration provides `DATABASE_URL`; the app uses PostgreSQL whenever this variable (or `POSTGRES_URL`) exists.
 - Production deliberately refuses to fall back to Vercel's temporary filesystem when PostgreSQL is missing.
-- Leads are not automatically deleted. They remain in PostgreSQL until an authorized user explicitly deletes them, so the 48-hour minimum is exceeded rather than relying on a timed cleanup job.
+- Leads are not automatically deleted and no expiry/cleanup job is enabled. They remain in PostgreSQL indefinitely by default, so the 48-hour minimum is exceeded rather than relying on a timed cleanup job.
 - The database schema is initialized idempotently at runtime. Existing lead, user, batch, task, activity, audit, and WhatsApp log tables are supported.
 
 ## Windows WhatsApp sender using the same database
