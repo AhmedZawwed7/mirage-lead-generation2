@@ -67,3 +67,9 @@
 
 ### تشغيل WhatsApp محلياً
 على جهاز Windows: `pip install -r requirements-local.txt` ثم `playwright install chromium`. شغّل التطبيق محلياً وافتح `/whatsapp` واضغط ربط WhatsApp لمسح QR. مجلد الجلسة محلي ومستبعد من Git.
+
+
+## استعادة خصائص النسخة المرفوعة
+الواجهة الجديدة تفصل صفحات البحث والعملاء ومرسل WhatsApp ومرسل البريد والنشاط والإحصائيات. البحث المتقدم يسمح بتحديد عدة دول وعدد نتائج مستهدف، ويدعم Google Web وGoogle Maps وBing وYahoo وYandex وDuckDuckGo وفق مفاتيح المزود المتاحة. بيانات Google Maps وGoogle/Bing/Yahoo/Yandex عبر SerpAPI تحتاج SERPAPI_KEY؛ Google Web يدعم أيضاً GOOGLE_API_KEY وGOOGLE_CX. لا يمكن لأي محرك إرجاع كل صفحات الإنترنت دون حدود أو ضمان التغطية.
+
+مرسل البريد يستخدم SMTP ويختبر الاتصال ويخصص {company} و{city}، ولا يحفظ كلمة مرور SMTP. مرسل WhatsApp المحلي يدعم ربط QR عبر WhatsApp Web، الرسائل المخصصة، المرفقات حتى 16MB، التأخير بين الرسائل، استراحة الدفعات، الحد اليومي، الإيقاف، وسجل الإرسال. يلزم Windows/Chrome وPlaywright: `pip install -r requirements-local.txt` ثم `playwright install chromium`. هذا المرسل غير متاح على Vercel Serverless. مجلد `instance/wa_profile` خاص ولا يجب رفعه إلى GitHub أو مشاركته.
