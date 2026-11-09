@@ -51,3 +51,19 @@
 - أرسل رأس X-Mirage-Webhook-Token المطابق للمتغير CAMPAIGN_WEBHOOK_TOKEN.
 - يجب أن تتضمن البيانات consent=true ورقم هاتف أو بريدًا، مع external_id لمنع تكرار نفس Lead من المصدر.
 هذا المسار هو طبقة استقبال داخلية؛ لا يعني أن OAuth أو webhooks الرسمية من Google/Meta/TikTok قد تم ربطها. يلزم إعداد تطبيقات كل منصة والتحقق من توقيعاتها ثم تمرير البيانات إلى هذا المسار.
+
+
+## خصائص النسخة الأصلية — التوسعة الحالية
+- صفحات مستقلة: البحث، العملاء، WhatsApp Sender، Email Sender، النشاط، الإحصائيات.
+- البحث المتقدم يقبل عدة دول في نفس العملية، مع عدد مستهدف من 1 إلى 1000.
+- محركات البحث المتاحة: DuckDuckGo بدون مفتاح، Google Web وGoogle Maps وBing عبر SerpAPI. ويمكن تشغيل Google Web عبر GOOGLE_API_KEY وGOOGLE_CX. يتم منع التكرار بالهاتف والبريد والموقع.
+- تظهر روابط Google Maps في صفحة العملاء. بيانات الأنشطة من خرائط Google تحتاج SERPAPI_KEY، وليست كل نتائج Google Maps مضمونة.
+- Email Sender يدعم SMTP، اختبار الاتصال، متغيرات {company} و{city}، ولا يحفظ كلمة مرور SMTP.
+- WhatsApp Sender منطق DoDo/WhatsApp Web مع ربط QR، اختيار العملاء، نص مخصص، مرفق حتى 16MB، تأخير عشوائي، استراحة دفعات، حد يومي، إيقاف، وتسجيل النتائج. يتطلب تشغيل التطبيق محلياً على Windows مع Chrome وPlaywright؛ لا يعمل داخل Vercel Serverless.
+- لا تنقل مجلد wa_profile إلى GitHub أو Vercel؛ يحتوي جلسة WhatsApp خاصة. كما لا تُرسل إلى العملاء الذين حالتهم optout.
+
+### مفاتيح البحث
+أضف SERPAPI_KEY في Vercel Environment Variables لتفعيل Google وGoogle Maps وBing. DuckDuckGo متاح دون مفتاح. Google Programmable Search يستخدم GOOGLE_API_KEY وGOOGLE_CX.
+
+### تشغيل WhatsApp محلياً
+على جهاز Windows: `pip install -r requirements-local.txt` ثم `playwright install chromium`. شغّل التطبيق محلياً وافتح `/whatsapp` واضغط ربط WhatsApp لمسح QR. مجلد الجلسة محلي ومستبعد من Git.
