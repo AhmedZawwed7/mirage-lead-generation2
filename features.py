@@ -62,7 +62,12 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
 
     def render_page(section):
         c=db()
-        leads=c.execute("SELECT id,company,phone,email,city,country,status,website FROM leads ORDER BY id DESC LIMIT 1000").fetchall()
+        batch_filter=request.args.get("batch",type=int)
+        if batch_filter:
+            leads=c.execute("SELECT id,company,phone,email,city,country,status,website,batch_id,score,source,keyword FROM leads WHERE batch_id=? ORDER BY id DESC LIMIT 1000",(batch_filter,)).fetchall()
+        else:
+            leads=c.execute("SELECT id,company,phone,email,city,country,status,website,batch_id,score,source,keyword FROM leads ORDER BY id DESC LIMIT 1000").fetchall()
+        batches=c.execute("SELECT id,name,keyword,country,created,scanned,added FROM batches ORDER BY id DESC LIMIT 30").fetchall()
         stats={"total":c.execute("SELECT COUNT(*) FROM leads").fetchone()[0],
                "phone":c.execute("SELECT COUNT(*) FROM leads WHERE COALESCE(phone,'')<>''").fetchone()[0],
                "email":c.execute("SELECT COUNT(*) FROM leads WHERE COALESCE(email,'')<>''").fetchone()[0],
@@ -74,7 +79,7 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
             tasks=c.execute("SELECT t.id,t.title,t.due_at,t.status,t.assigned_to,l.company FROM tasks t LEFT JOIN leads l ON l.id=t.lead_id ORDER BY t.id DESC LIMIT 100").fetchall()
             wa_logs=c.execute("SELECT w.id,w.phone,w.ok,w.note,w.created,l.company FROM wa_log w LEFT JOIN leads l ON l.id=w.lead_id ORDER BY w.id DESC LIMIT 100").fetchall()
         c.close()
-        return render_template("features.html",section=section,leads=leads,stats=stats,countries=COUNTRIES,activities=activities,tasks=tasks,wa_logs=wa_logs)
+        return render_template("features.html",section=section,leads=leads,stats=stats,countries=COUNTRIES,activities=activities,tasks=tasks,wa_logs=wa_logs,batches=batches,batch_filter=batch_filter)
 
     for section in ("search","leads","whatsapp","email","activity","statistics"):
         def view(s=section): return render_page(s)
