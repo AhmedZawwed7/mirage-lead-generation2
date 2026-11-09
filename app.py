@@ -77,9 +77,15 @@ def db():
     c.execute("""CREATE TABLE IF NOT EXISTS audit_logs(
         id INTEGER PRIMARY KEY, actor TEXT, action TEXT, entity TEXT, entity_id INTEGER,
         details TEXT DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP)""")
-    if PASSWORD and not c.execute("SELECT 1 FROM users WHERE username=?", (ADMIN,)).fetchone():
-        c.execute("INSERT INTO users(username,password_hash,role) VALUES(?,?,?)",
-                  (ADMIN, generate_password_hash(PASSWORD), "admin"))
+    if PASSWORD:
+        # Idempotent bootstrap: concurrent Vercel cold starts must not race on the unique username.
+        admin_row = c.execute("SELECT password_hash FROM users WHERE username=?", (ADMIN,)).fetchone()
+        if not admin_row:
+            c.execute("INSERT OR IGNORE INTO users(username,password_hash,role) VALUES(?,?,?)",
+                      (ADMIN, generate_password_hash(PASSWORD), "admin"))
+        elif not check_password_hash(admin_row["password_hash"], PASSWORD):
+            c.execute("UPDATE users SET password_hash=?, role='admin', active=1 WHERE username=?",
+                      (generate_password_hash(PASSWORD), ADMIN))
     c.execute("""CREATE TABLE IF NOT EXISTS batches(
         id INTEGER PRIMARY KEY, name TEXT, keyword TEXT, country TEXT,
         created TEXT DEFAULT CURRENT_TIMESTAMP, scanned INTEGER DEFAULT 0, added INTEGER DEFAULT 0)""")
