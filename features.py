@@ -166,8 +166,8 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         raw_phone=str(item.get("phone") or item.get("phone_number") or "")
         address=str(item.get("address") or item.get("city") or "")[:180]
         city=next((c for c in COUNTRY_DATA.get(code,("",[],))[1] if c in address),address)
-        email=str(item.get("email") or "").strip().lower();phone=normalize_phone(raw_phone,code)[0] if raw_phone else ""
-        phones=[(phone,False,True)] if phone else [];has_wa=False;host=""
+        email=str(item.get("email") or "").strip().lower();phone,mobile=normalize_phone(raw_phone,code) if raw_phone else ("",False)
+        phones=[(phone,mobile,True)] if phone else [];has_wa=False;host=""
         if url and is_public_url(url) and robots_allowed(url):
             host=(urllib.parse.urlparse(url).hostname or "").lower().removeprefix("www.")
             html=safe_fetch(url)
