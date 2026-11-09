@@ -1,4 +1,9 @@
 import os, re, sqlite3, io, csv, ipaddress, socket, urllib.parse, hmac, time, urllib.robotparser, secrets, datetime
+try:
+    import psycopg
+    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, psycopg.errors.UniqueViolation)
+except ImportError:
+    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
 from functools import wraps
 from flask import Flask, request, session, redirect, url_for, render_template, jsonify, Response, flash
 import requests
@@ -528,7 +533,7 @@ def campaign_webhook(source):
         audit(c, "campaign.lead.created", "lead", cur.lastrowid, source)
         c.commit()
         lead_id = cur.lastrowid
-    except sqlite3.IntegrityError:
+    except DB_INTEGRITY_ERRORS:
         c.close()
         return jsonify(ok=True, duplicate=True), 200
     c.close()
