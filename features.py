@@ -1,13 +1,49 @@
 """Advanced feature routes ported from the original Mirage Hunter package."""
 import os,re,time,uuid,smtplib,urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.message import EmailMessage
 from flask import request,jsonify,render_template
 import requests
 from bs4 import BeautifulSoup
+try:
+    import phonenumbers
+except ImportError:
+    phonenumbers = None
 
-COUNTRIES={"SA":"السعودية","AE":"الإمارات","EG":"مصر","KW":"الكويت","QA":"قطر","BH":"البحرين","OM":"عمان","JO":"الأردن","MA":"المغرب","TR":"تركيا","GB":"بريطانيا","US":"أمريكا","DE":"ألمانيا","FR":"فرنسا","IT":"إيطاليا","ES":"إسبانيا","NL":"هولندا","CA":"كندا","AU":"أستراليا","IN":"الهند","PK":"باكستان","CN":"الصين","JP":"اليابان","ZA":"جنوب أفريقيا","NG":"نيجيريا"}
+COUNTRY_DATA={
+ "SA":("السعودية",["الرياض","جدة","الدمام","مكة المكرمة","المدينة المنورة","الخبر","أبها","تبوك"]),
+ "AE":("الإمارات",["دبي","أبوظبي","الشارقة","عجمان","العين","رأس الخيمة"]),
+ "EG":("مصر",["القاهرة","الجيزة","الإسكندرية","المنصورة","طنطا","أسيوط","الغردقة"]),
+ "KW":("الكويت",["مدينة الكويت","حولي","السالمية","الفروانية","الأحمدي"]),
+ "QA":("قطر",["الدوحة","الريان","الوكرة","لوسيل"]),
+ "BH":("البحرين",["المنامة","المحرق","الرفاع","مدينة عيسى"]),
+ "OM":("عمان",["مسقط","صلالة","صحار","نزوى"]),
+ "JO":("الأردن",["عمّان","إربد","الزرقاء","العقبة"]),
+ "MA":("المغرب",["الدار البيضاء","الرباط","مراكش","طنجة","فاس"]),
+ "TR":("تركيا",["إسطنبول","أنقرة","إزمير","أنطاليا"]),
+ "GB":("بريطانيا",["لندن","مانشستر","برمنغهام","ليفربول"]),
+ "US":("أمريكا",["نيويورك","لوس أنجلوس","شيكاغو","هيوستن"]),
+ "DE":("ألمانيا",["برلين","ميونخ","هامبورغ","فرانكفورت"]),
+ "FR":("فرنسا",["باريس","ليون","مرسيليا","نيس"]),
+ "IT":("إيطاليا",["روما","ميلانو","نابولي","تورينو"]),
+ "ES":("إسبانيا",["مدريد","برشلونة","فالنسيا","إشبيلية"]),
+ "NL":("هولندا",["أمستردام","روتردام","أوترخت"]),
+ "CA":("كندا",["تورونتو","فانكوفر","مونتريال","أوتاوا"]),
+ "AU":("أستراليا",["سيدني","ملبورن","بريزبن","بيرث"]),
+ "IN":("الهند",["مومباي","دلهي","بنغالور","حيدر آباد"]),
+ "PK":("باكستان",["كراتشي","لاهور","إسلام آباد","راولبندي"]),
+ "CN":("الصين",["شنغهاي","بكين","شينزين","قوانغتشو"]),
+ "JP":("اليابان",["طوكيو","أوساكا","يوكوهاما"]),
+ "ZA":("جنوب أفريقيا",["جوهانسبرغ","كيب تاون","ديربان"]),
+ "NG":("نيجيريا",["لاغوس","أبوجا","كانو"])
+}
+COUNTRIES={k:v[0] for k,v in COUNTRY_DATA.items()}
+MODIFIERS=["رقم الهاتف واتصل بنا","الموقع الرسمي بيانات التواصل","خدمات الشركات تواصل","contact phone official website"]
+EXPANSIONS={"تنظيف":["خدمات تنظيف","شركة نظافة","cleaning services"],"مقاولات":["مقاولات عامة","إنشاءات","construction company"],"تسويق":["وكالة تسويق","digital marketing agency"],"عقارات":["شركة عقارية","real estate company"],"برمجة":["شركة برمجيات","software company"],"شحن":["شركة شحن ولوجستيات","logistics company"],"مطاعم":["مطاعم وشركات تموين","catering company"],"صيانة":["خدمات صيانة","maintenance services"]}
+SKIP_DOMAINS=("facebook.com","instagram.com","linkedin.com","youtube.com","x.com","twitter.com","tiktok.com","wikipedia.org","yellowpages.","yelp.com","maps.google.")
 
-def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,robots_allowed):
+
+def register_featuresdef register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,robots_allowed):
     sender={"obj":None}
     def init_wa():
         if sender["obj"]: return sender["obj"]
@@ -46,43 +82,100 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         app.add_url_rule("/"+section,endpoint=view.__name__,view_func=auth(view))
 
     def phone_digits(value):
-        d=re.sub(r"\D","",value or "")
-        return d if 8<=len(d)<=15 else ""
+        return re.sub(r"\D","",value or "")
+
+    def normalize_phone(raw,region):
+        if phonenumbers:
+            try:
+                parsed=phonenumbers.parse(raw,region or None)
+                if phonenumbers.is_valid_number(parsed):
+                    mobile=phonenumbers.number_type(parsed) in (phonenumbers.PhoneNumberType.MOBILE,phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE)
+                    return phonenumbers.format_number(parsed,phonenumbers.PhoneNumberFormat.INTERNATIONAL),mobile
+            except Exception:return "",False
+            return "",False
+        digits=phone_digits(raw)
+        return ("+"+digits,False) if 9<=len(digits)<=15 else ("",False)
 
     def get_results(query,country,engine,lang,limit):
-        key=os.getenv("SERPAPI_KEY")
-        if engine not in ("google","bing","google_maps") or (not key and not (engine=="google" and os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_CX"))):
+        if engine=="google_maps":
+            key=os.getenv("SERPAPI_KEY")
+            if not key:return []
             try:
-                from ddgs import DDGS
-                region="xa-ar" if lang=="ar" else "wt-wt"
-                return list(DDGS().text(query,backend=engine,region=region,max_results=min(100,limit)))
+                r=requests.get("https://serpapi.com/search.json",params={"engine":"google_maps","q":query,"api_key":key,"hl":"ar" if lang=="ar" else "en","gl":country.lower()},timeout=22)
+                r.raise_for_status();data=r.json()
+                return data.get("local_results") or data.get("places_results") or []
             except Exception:return []
-        if engine=="google" and not key and os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_CX"):
-            out=[]
-            for start in range(1,min(91,limit)+1,10):
-                try:
-                    r=requests.get("https://www.googleapis.com/customsearch/v1",params={"key":os.getenv("GOOGLE_API_KEY"),"cx":os.getenv("GOOGLE_CX"),"q":query,"gl":country.lower(),"num":min(10,limit-len(out)),"start":start},timeout=18)
-                    r.raise_for_status(); items=r.json().get("items",[])
-                except Exception: break
-                out.extend(items)
-                if not items or len(out)>=limit: break
-            return out
-        if not key:return []
-        out=[]; start=0
-        for _ in range(min(10,max(1,(limit+9)//10))):
-            params={"engine":engine,"q":query,"api_key":key,"gl":country.lower(),"hl":"ar" if lang=="ar" else "en","num":10}
-            if engine=="google":params["start"]=start
-            if engine=="bing":params["first"]=start+1
-            if engine=="google_maps":params.pop("num",None)
-            try:
-                r=requests.get("https://serpapi.com/search.json",params=params,timeout=18);r.raise_for_status();data=r.json()
-            except Exception:break
-            items=(data.get("local_results") or data.get("places_results") or []) if engine=="google_maps" else (data.get("organic_results") or data.get("organic") or [])
-            if not items:break
-            out.extend(items)
-            if engine=="google_maps" or len(out)>=limit:break
-            start+=10
-        return out[:limit]
+        try:
+            from ddgs import DDGS
+            region=("xa-ar" if lang=="ar" else "xa-en") if country in ("SA","AE","KW","QA","BH","OM") else "wt-wt"
+            try:return list(DDGS().text(query,backend=engine,region=region,max_results=min(40,max(10,limit))))
+            except TypeError:return list(DDGS().text(query,region=region,max_results=min(40,max(10,limit))))
+        except Exception:return []
+
+    def extract_site(html,url,code,cities):
+        soup=BeautifulSoup(html,"html.parser");strong=[];emails=[];has_wa=False
+        for anchor in soup.find_all("a",href=True):
+            href=anchor.get("href","").strip()
+            if href.lower().startswith("tel:"):strong.append(urllib.parse.unquote(href[4:]))
+            elif "wa.me/" in href or "api.whatsapp.com" in href:
+                has_wa=True;match=re.search(r"(\d{8,15})",href)
+                if match:strong.append("+"+match.group(1))
+            elif href.lower().startswith("mailto:"):emails.append(href[7:].split("?")[0].strip().lower())
+        text=" ".join(soup.stripped_strings)
+        weak=re.findall(r"(?<![\w/])(\+?\d[\d\s().-]{7,17}\d)(?![\w/])",text)
+        phones=[]
+        for raw in strong+weak:
+            number,mobile=normalize_phone(raw,code)
+            if number and number not in [p[0] for p in phones]:phones.append((number,mobile,raw in strong))
+        emails.extend(re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",html))
+        emails=list(dict.fromkeys(e.lower() for e in emails if e and "example." not in e and "sentry" not in e and "noreply" not in e))
+        meta=soup.find("meta",property="og:site_name");name=meta.get("content","") if meta else ""
+        if not name and soup.title and soup.title.string:name=re.split(r"\s[|\-–—]\s",soup.title.string.strip())[0]
+        city=next((c for c in cities if c and c.lower() in text.lower()),"")
+        return {"phones":phones,"emails":emails,"name":name[:180],"city":city,"wa":has_wa}
+
+    def contact_pages(html,base_url):
+        soup=BeautifulSoup(html,"html.parser");host=urllib.parse.urlparse(base_url).hostname;found=[]
+        hints=("contact","about","اتصل","تواصل","من نحن","اتصل بنا","contact-us")
+        for anchor in soup.find_all("a",href=True):
+            label=(anchor.get_text(" ",strip=True)+" "+anchor["href"]).lower()
+            if any(h in label for h in hints):
+                candidate=urllib.parse.urljoin(base_url,anchor["href"])
+                if urllib.parse.urlparse(candidate).hostname==host and candidate not in found:found.append(candidate)
+            if len(found)>=2:break
+        return found
+
+    def process_site(item,code,keyword,engine):
+        url=item.get("website") or item.get("link") or item.get("href") or item.get("url") or ""
+        if url and not url.startswith(("http://","https://")):url="https://"+url
+        title=str(item.get("title") or item.get("name") or "شركة بدون اسم")[:180]
+        raw_phone=str(item.get("phone") or item.get("phone_number") or "")
+        address=str(item.get("address") or item.get("city") or "")[:180]
+        city=next((c for c in COUNTRY_DATA.get(code,("",[],))[1] if c in address),address)
+        email=str(item.get("email") or "").strip().lower();phone=normalize_phone(raw_phone,code)[0] if raw_phone else ""
+        phones=[(phone,False,True)] if phone else [];has_wa=False;host=""
+        if url and is_public_url(url) and robots_allowed(url):
+            host=(urllib.parse.urlparse(url).hostname or "").lower().removeprefix("www.")
+            html=safe_fetch(url)
+            if html:
+                data=extract_site(html,url,code,COUNTRY_DATA.get(code,("",[],))[1])
+                if data["name"]:title=data["name"]
+                phones.extend([p for p in data["phones"] if p[0] not in [x[0] for x in phones]])
+                email=email or (data["emails"][0] if data["emails"] else "")
+                city=city or data["city"];has_wa=data["wa"]
+                if not phones:
+                    for contact_url in contact_pages(html,url):
+                        if not robots_allowed(contact_url):continue
+                        sub=safe_fetch(contact_url)
+                        if not sub:continue
+                        more=extract_site(sub,contact_url,code,COUNTRY_DATA.get(code,("",[],))[1])
+                        phones.extend([p for p in more["phones"] if p[0] not in [x[0] for x in phones]])
+                        email=email or (more["emails"][0] if more["emails"] else "")
+                        city=city or more["city"];has_wa=has_wa or more["wa"]
+                        if phones:break
+        if not phones and not email:return []
+        phones.sort(key=lambda p:(not p[2],not p[1]));phones=phones[:3] or [("",False,False)]
+        return [{"company":title,"phone":num,"email":email,"website":host,"country":COUNTRIES.get(code,code),"city":city,"keyword":keyword,"score":min(99,35+(25 if mobile else (10 if num else 0))+(18 if email else 0)+(14 if has_wa else 0)+(8 if city else 0)),"source":engine} for num,mobile,strong in phones]
 
     @app.post("/api/search/advanced")
     @auth
@@ -93,57 +186,83 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         countries=b.get("countries") or []
         if isinstance(countries,str):countries=[countries]
         countries=[x for x in countries if x in COUNTRIES]
-        engines=[x for x in (b.get("engines") or ["google","google_maps","bing","duckduckgo"]) if x in ("google","google_maps","bing","brave","duckduckgo","yahoo","yandex","mojeek","startpage","wikipedia")]
+        engines=[x for x in (b.get("engines") or ["duckduckgo"]) if x in ("google","google_maps","bing","brave","duckduckgo","yahoo","yandex","mojeek","startpage","wikipedia")]
         try:target=max(1,min(1000,int(b.get("target",100))))
         except (ValueError,TypeError):target=100
-        lang="en" if b.get("language")=="en" else "ar"
-        if not keyword or not countries or not engines:return jsonify(error="أدخل النشاط واختر دولة واحدة على الأقل ومصدر بحث."),400
-        c=db();batch=c.execute("INSERT INTO batches(name,keyword,country) VALUES(?,?,?)",(keyword+" | "+", ".join(COUNTRIES[x] for x in countries),keyword,", ".join(countries))).lastrowid
-        audit(c,"search.started","batch",batch,keyword+" | "+", ".join(countries));c.commit();c.close()
-        scanned=added=duplicates=0;seen_p=set();seen_h=set();seen_e=set();errors=[]
-        for country in countries:
-            for engine in engines:
-                if added>=target:break
-                if engine=="google_maps" and not os.getenv("SERPAPI_KEY"):
-                    errors.append(engine+" يحتاج SERPAPI_KEY");continue
-                q=f"{keyword} {COUNTRIES[country]} شركة هاتف تواصل"
-                for item in get_results(q,country,engine,lang,max(10,target-added)):
-                    if added>=target:break
-                    scanned+=1
-                    url=item.get("website") or item.get("link") or item.get("href") or item.get("url") or ""
-                    if url and not url.startswith(("http://","https://")):url="https://"+url
-                    name=str(item.get("title") or item.get("name") or "شركة بدون اسم")[:180]
-                    phone=str(item.get("phone") or item.get("phone_number") or "")
-                    email="";city=str(item.get("address") or item.get("city") or "")[:160]
-                    host=urllib.parse.urlparse(url).hostname or "";host=host.lower().removeprefix("www.")
-                    if url and is_public_url(url) and robots_allowed(url):
-                        html=safe_fetch(url)
-                        if html:
-                            soup=BeautifulSoup(html,"html.parser")
-                            if name=="شركة بدون اسم" and soup.title and soup.title.string:name=soup.title.string.strip()[:180]
-                            txt=" ".join(soup.stripped_strings)
-                            if not phone:
-                                phone=next((p for p in re.findall(r"(?<![\w/])(\+?\d[\d\s().-]{7,17}\d)(?![\w/])",txt) if phone_digits(p)),"")
-                            email=next((e.lower() for e in re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",html) if "example." not in e.lower() and "sentry" not in e.lower()),"")
-                    pn=phone_digits(phone);en=email.lower()
-                    if not pn and not en and not host:continue
-                    if (pn and pn in seen_p) or (en and en in seen_e) or (host and host in seen_h):duplicates+=1;continue
-                    c=db()
-                    old=c.execute("SELECT id FROM leads WHERE (?<>'' AND REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-','')=?) OR (?<>'' AND lower(email)=?) OR (?<>'' AND lower(website) LIKE ?) LIMIT 1",(pn,pn,en,en,host,"%"+host+"%")).fetchone()
-                    if old:duplicates+=1;c.close();continue
-                    score=min(99,35+(25 if pn else 0)+(18 if en else 0)+(8 if city else 0))
-                    c.execute("INSERT INTO leads(company,phone,email,website,country,keyword,score,status,source) VALUES(?,?,?,?,?,?,?,'new',?)",(name,phone,email,host or url,COUNTRIES[country],keyword,score,"google_maps" if engine=="google_maps" else engine))
-                    c.commit();c.close()
-                    if pn:seen_p.add(pn)
-                    if en:seen_e.add(en)
-                    if host:seen_h.add(host)
-                    added+=1
-            if added>=target:break
-        c=db();c.execute("UPDATE batches SET scanned=?,added=? WHERE id=?",(scanned,added,batch));c.commit();c.close()
-        warning="؛ ".join(dict.fromkeys(errors))
-        return jsonify(ok=True,batch_id=batch,scanned=scanned,added=added,duplicates=duplicates,target=target,countries=[COUNTRIES[x] for x in countries],engines=engines,warning=warning)
+        lang=b.get("language") if b.get("language") in ("ar","en","both") else "ar"
+        city_filter=str(b.get("city") or "").strip()
+        widen=b.get("widen",True) is not False
+        if not keyword or not countries or not engines:return jsonify(error="أدخل النشاط واختر دولة واحدة على الأقل ومحرك بحث."),400
+        map_warning=""
+        if "google_maps" in engines and not os.getenv("SERPAPI_KEY"):
+            engines=[x for x in engines if x!="google_maps"]
+            map_warning="Google Maps يحتاج SERPAPI_KEY؛ محركات الويب تعمل عبر DDGS بدون مفتاح."
+        if not engines:return jsonify(error=map_warning or "لا يوجد محرك بحث متاح."),400
 
-    @app.post("/api/email/test")
+        c=db()
+        batch=c.execute("INSERT INTO batches(name,keyword,country) VALUES(?,?,?)",(keyword+" | "+", ".join(COUNTRIES[x] for x in countries),keyword+", ".join(countries))).lastrowid
+        audit(c,"search.started","batch",batch,keyword+" | "+", ".join(countries));c.commit();c.close()
+
+        keywords=[keyword]
+        if widen:
+            for term,alts in EXPANSIONS.items():
+                if term in keyword:keywords.extend(alts)
+        keywords=list(dict.fromkeys(keywords))
+        languages=("ar","en") if lang=="both" else (lang,)
+        query_plan=[]
+        for code in countries:
+            cities=[city_filter] if city_filter else COUNTRY_DATA[code][1][:4]
+            for kw in keywords:
+                for city_name in cities:
+                    for language in languages:
+                        modifier=MODIFIERS[0] if language=="ar" else MODIFIERS[-1]
+                        query_plan.append((" ".join(x for x in (kw,city_name,COUNTRIES[code],modifier) if x),code,language,kw))
+        max_queries=max(4,min(24,72//max(1,len(engines))))
+        query_plan=query_plan[:max_queries]
+        scanned=added=duplicates=0;seen_hosts=set();seen_phones=set();seen_emails=set()
+        max_sites=min(1600,max(120,target*8))
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            for query,code,language,kw in query_plan:
+                if added>=target or scanned>=max_sites:break
+                for engine in engines:
+                    if added>=target or scanned>=max_sites:break
+                    items=get_results(query,code,engine,language,30)
+                    futures=[]
+                    for item in items:
+                        if scanned>=max_sites:break
+                        url=item.get("website") or item.get("link") or item.get("href") or item.get("url") or ""
+                        host=(urllib.parse.urlparse(url if "://" in url else "https://"+url).hostname or "").lower().removeprefix("www.") if url else ""
+                        if host and (host in seen_hosts or any(host.endswith(x) for x in SKIP_DOMAINS)):continue
+                        if host:seen_hosts.add(host)
+                        scanned+=1;futures.append(pool.submit(process_site,item,code,kw,engine))
+                    for future in as_completed(futures):
+                        try:found=future.result()
+                        except Exception:found=[]
+                        for lead in found:
+                            if added>=target:break
+                            pn=phone_digits(lead["phone"]);em=lead["email"].lower();host=lead["website"].lower()
+                            if (pn and pn in seen_phones) or (em and em in seen_emails):duplicates+=1;continue
+                            c=db()
+                            old=c.execute("""SELECT id FROM leads
+                                WHERE (?<>'' AND REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(', '')=?)
+                                   OR (?<>'' AND lower(email)=?)
+                                   OR (?<>'' AND lower(website)=?) LIMIT 1""",(pn,pn,em,em,host,host)).fetchone()
+                            if old:duplicates+=1;c.close();continue
+                            try:
+                                c.execute("""INSERT INTO leads(company,phone,email,website,country,keyword,score,status,source,city,batch_id)
+                                    VALUES(?,?,?,?,?,?,?,'new',?,?,?)""",
+                                    (lead["company"],lead["phone"],lead["email"],lead["website"],lead["country"],lead["keyword"],lead["score"],lead["source"],lead["city"],batch))
+                                c.commit();added+=1
+                                if pn:seen_phones.add(pn)
+                                if em:seen_emails.add(em)
+                            except Exception:
+                                c.rollback();duplicates+=1
+                            finally:c.close()
+        c=db();c.execute("UPDATE batches SET scanned=?,added=? WHERE id=?",(scanned,added,batch));c.commit();c.close()
+        warning="؛ ".join(x for x in (map_warning,) if x)
+        return jsonify(ok=True,batch_id=batch,scanned=scanned,added=added,duplicates=duplicates,target=target,countries=[COUNTRIES[x] for x in countries],engines=engines,warning=warning,note=("وصل البحث إلى الهدف المطلوب." if added>=target else "انتهت الاستعلامات المتاحة قبل الوصول للهدف؛ يمكنك بدء دفعة أخرى."))
+
+    @app.post("/api/email/test")    @app.post("/api/email/test")
     @auth
     @role_required("admin","manager")
     def email_test():
