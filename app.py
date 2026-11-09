@@ -83,6 +83,8 @@ def db():
     c.execute("""CREATE TABLE IF NOT EXISTS batches(
         id INTEGER PRIMARY KEY, name TEXT, keyword TEXT, country TEXT,
         created TEXT DEFAULT CURRENT_TIMESTAMP, scanned INTEGER DEFAULT 0, added INTEGER DEFAULT 0)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS activities(id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL, actor TEXT NOT NULL, activity_type TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL, assigned_to TEXT NOT NULL, title TEXT NOT NULL, due_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_by TEXT NOT NULL, created TEXT DEFAULT CURRENT_TIMESTAMP)""")
     c.commit()
     return c
 
@@ -344,6 +346,99 @@ def update_lead(lead_id):
     c.close()
     return jsonify(ok=True)
 
+
+
+def _visible_lead(c, lead_id):
+    lead = c.execute("SELECT id,owner FROM leads WHERE id=?", (lead_id,)).fetchone()
+    if not lead:
+        return None, (jsonify(error="العميل غير موجود"), 404)
+    if session.get("role") == "sales" and lead["owner"] != session.get("user"):
+        return None, (jsonify(error="هذا العميل غير مسند إليك"), 403)
+    return lead, None
+
+@app.route("/api/leads/<int:lead_id>/activities", methods=["GET", "POST"])
+@auth
+def lead_activities(lead_id):
+    c = db()
+    lead, error = _visible_lead(c, lead_id)
+    if error:
+        c.close()
+        return error
+    if request.method == "GET":
+        rows = c.execute("SELECT id,actor,activity_type,note,created FROM activities WHERE lead_id=? ORDER BY id DESC LIMIT 100", (lead_id,)).fetchall()
+        c.close()
+        return jsonify(activities=[dict(x) for x in rows])
+    data = request.get_json(silent=True) or {}
+    kind, note = str(data.get("activity_type", "note")), str(data.get("note", "")).strip()
+    if kind not in ("note", "call", "whatsapp", "email", "meeting", "status") or not note:
+        c.close()
+        return jsonify(error="نوع النشاط والملاحظة مطلوبان"), 400
+    cur = c.execute("INSERT INTO activities(lead_id,actor,activity_type,note) VALUES(?,?,?,?)",
+                    (lead_id, session["user"], kind, note[:2000]))
+    audit(c, "activity.created", "lead", lead_id, kind)
+    c.commit()
+    row = c.execute("SELECT id,actor,activity_type,note,created FROM activities WHERE id=?", (cur.lastrowid,)).fetchone()
+    c.close()
+    return jsonify(ok=True, activity=dict(row)), 201
+
+@app.route("/api/tasks", methods=["GET", "POST"])
+@auth
+def tasks():
+    c = db()
+    if request.method == "GET":
+        if session.get("role") == "sales":
+            rows = c.execute("SELECT t.*,l.company FROM tasks t JOIN leads l ON l.id=t.lead_id WHERE t.assigned_to=? ORDER BY t.due_at LIMIT 200", (session["user"],)).fetchall()
+        else:
+            rows = c.execute("SELECT t.*,l.company FROM tasks t JOIN leads l ON l.id=t.lead_id ORDER BY t.due_at LIMIT 300").fetchall()
+        c.close()
+        return jsonify(tasks=[dict(x) for x in rows])
+    data = request.get_json(silent=True) or {}
+    try:
+        lead_id = int(data.get("lead_id"))
+    except (TypeError, ValueError):
+        c.close()
+        return jsonify(error="اختر عميلاً صالحاً"), 400
+    lead, error = _visible_lead(c, lead_id)
+    if error:
+        c.close()
+        return error
+    title, due = str(data.get("title", "")).strip(), str(data.get("due_at", "")).strip()
+    assignee = session["user"] if session.get("role") == "sales" else str(data.get("assigned_to") or "").strip()
+    if not title or len(title) > 180 or not due:
+        c.close()
+        return jsonify(error="عنوان المهمة والموعد مطلوبان"), 400
+    if session.get("role") != "sales":
+        user = c.execute("SELECT role FROM users WHERE username=? AND active=1", (assignee,)).fetchone()
+        if not user or user["role"] != "sales":
+            c.close()
+            return jsonify(error="اختر موظف مبيعات نشطاً"), 400
+    cur = c.execute("INSERT INTO tasks(lead_id,assigned_to,title,due_at,created_by) VALUES(?,?,?,?,?)",
+                    (lead_id, assignee, title, due[:40], session["user"]))
+    audit(c, "task.created", "lead", lead_id, title)
+    c.commit()
+    row = c.execute("SELECT * FROM tasks WHERE id=?", (cur.lastrowid,)).fetchone()
+    c.close()
+    return jsonify(ok=True, task=dict(row)), 201
+
+@app.patch("/api/tasks/<int:task_id>")
+@auth
+def update_task(task_id):
+    status = (request.get_json(silent=True) or {}).get("status")
+    if status not in ("open", "done", "cancelled"):
+        return jsonify(error="حالة المهمة غير صالحة"), 400
+    c = db()
+    task = c.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+    if not task:
+        c.close()
+        return jsonify(error="المهمة غير موجودة"), 404
+    if session.get("role") == "sales" and task["assigned_to"] != session["user"]:
+        c.close()
+        return jsonify(error="هذه المهمة ليست مسندة إليك"), 403
+    c.execute("UPDATE tasks SET status=? WHERE id=?", (status, task_id))
+    audit(c, "task.updated", "task", task_id, status)
+    c.commit()
+    c.close()
+    return jsonify(ok=True)
 
 @app.post("/api/webhooks/leads/<source>")
 def campaign_webhook(source):
