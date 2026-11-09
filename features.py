@@ -2,7 +2,7 @@
 import os,re,time,uuid,smtplib,urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from email.message import EmailMessage
-from flask import request,jsonify,render_template
+from flask import request,jsonify,render_template,redirect,session
 import requests
 from bs4 import BeautifulSoup
 try:
@@ -61,23 +61,30 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         return sender["obj"]
 
     def render_page(section):
+        if section in ("whatsapp","email") and session.get("role") not in ("admin","manager"):
+            return redirect("/leads")
         c=db()
         batch_filter=request.args.get("batch",type=int)
-        if batch_filter:
-            leads=c.execute("SELECT id,company,phone,email,city,country,status,website,batch_id,score,source,keyword FROM leads WHERE batch_id=? ORDER BY id DESC LIMIT 1000",(batch_filter,)).fetchall()
-        else:
-            leads=c.execute("SELECT id,company,phone,email,city,country,status,website,batch_id,score,source,keyword FROM leads ORDER BY id DESC LIMIT 1000").fetchall()
+        is_sales=session.get("role")=="sales"
+        where=[];params=[]
+        if batch_filter:where.append("batch_id=?");params.append(batch_filter)
+        if is_sales:where.append("owner=?");params.append(session.get("user"))
+        clause=(" WHERE "+" AND ".join(where)) if where else ""
+        leads=c.execute("SELECT id,company,phone,email,city,country,status,website,batch_id,score,source,keyword FROM leads"+clause+" ORDER BY id DESC LIMIT 1000",params).fetchall()
         batches=c.execute("SELECT id,name,keyword,country,created,scanned,added FROM batches ORDER BY id DESC LIMIT 30").fetchall()
-        stats={"total":c.execute("SELECT COUNT(*) FROM leads").fetchone()[0],
-               "phone":c.execute("SELECT COUNT(*) FROM leads WHERE COALESCE(phone,'')<>''").fetchone()[0],
-               "email":c.execute("SELECT COUNT(*) FROM leads WHERE COALESCE(email,'')<>''").fetchone()[0],
-               "optout":c.execute("SELECT COUNT(*) FROM leads WHERE status='optout'").fetchone()[0]}
+        scope=" WHERE owner=?" if is_sales else ""
+        scope_params=(session.get("user"),) if is_sales else ()
+        stats={"total":c.execute("SELECT COUNT(*) FROM leads"+scope,scope_params).fetchone()[0],
+               "phone":c.execute("SELECT COUNT(*) FROM leads"+scope+(" AND" if scope else " WHERE")+" COALESCE(phone,'')<>''",scope_params).fetchone()[0],
+               "email":c.execute("SELECT COUNT(*) FROM leads"+scope+(" AND" if scope else " WHERE")+" COALESCE(email,'')<>''",scope_params).fetchone()[0],
+               "optout":c.execute("SELECT COUNT(*) FROM leads"+scope+(" AND" if scope else " WHERE")+" status='optout'",scope_params).fetchone()[0]}
         activities=[];tasks=[];wa_logs=[]
         if section=="activity":
             c.execute("CREATE TABLE IF NOT EXISTS wa_log(id INTEGER PRIMARY KEY,lead_id INTEGER,phone TEXT,ok INTEGER,note TEXT,created TEXT DEFAULT CURRENT_TIMESTAMP)")
-            activities=c.execute("SELECT a.id,a.actor,a.activity_type,a.note,a.created,l.company FROM activities a LEFT JOIN leads l ON l.id=a.lead_id ORDER BY a.id DESC LIMIT 150").fetchall()
-            tasks=c.execute("SELECT t.id,t.title,t.due_at,t.status,t.assigned_to,l.company FROM tasks t LEFT JOIN leads l ON l.id=t.lead_id ORDER BY t.id DESC LIMIT 100").fetchall()
-            wa_logs=c.execute("SELECT w.id,w.phone,w.ok,w.note,w.created,l.company FROM wa_log w LEFT JOIN leads l ON l.id=w.lead_id ORDER BY w.id DESC LIMIT 100").fetchall()
+            join_filter=" WHERE l.owner=?" if is_sales else ""
+            activities=c.execute("SELECT a.id,a.actor,a.activity_type,a.note,a.created,l.company FROM activities a LEFT JOIN leads l ON l.id=a.lead_id"+join_filter+" ORDER BY a.id DESC LIMIT 150",scope_params).fetchall()
+            tasks=c.execute("SELECT t.id,t.title,t.due_at,t.status,t.assigned_to,l.company FROM tasks t LEFT JOIN leads l ON l.id=t.lead_id"+join_filter+" ORDER BY t.id DESC LIMIT 100",scope_params).fetchall()
+            wa_logs=c.execute("SELECT w.id,w.phone,w.ok,w.note,w.created,l.company FROM wa_log w LEFT JOIN leads l ON l.id=w.lead_id"+join_filter+" ORDER BY w.id DESC LIMIT 100",scope_params).fetchall()
         c.close()
         return render_template("features.html",section=section,leads=leads,stats=stats,countries=COUNTRIES,activities=activities,tasks=tasks,wa_logs=wa_logs,batches=batches,batch_filter=batch_filter)
 
