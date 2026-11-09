@@ -45,7 +45,7 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
 
     def get_results(query,country,engine,lang,limit):
         key=os.getenv("SERPAPI_KEY")
-        if engine!="google_maps" and not key:
+        if engine not in ("google","bing","google_maps") or not key:
             try:
                 from ddgs import DDGS
                 region="xa-ar" if lang=="ar" else "wt-wt"
