@@ -41,6 +41,7 @@ class Cursor:
             statement = re.sub(r"\bdatetime\('now'\s*,\s*'localtime'\)", "CURRENT_TIMESTAMP", statement, flags=re.I)
             statement = re.sub(r"date\(created\)\s*=\s*date\('now'\s*,\s*'localtime'\)", "created::date = CURRENT_DATE", statement, flags=re.I)
             statement = statement.replace("?", "%s")
+            statement = statement.replace("due_at < CURRENT_TIMESTAMP", "due_at < to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')")
             statement = re.sub(r"\bINTEGER\s+PRIMARY\s+KEY\b", "BIGSERIAL PRIMARY KEY", statement, flags=re.I)
             ignored = bool(re.match(r"INSERT\s+OR\s+IGNORE\s+INTO\b", statement, re.I))
             if ignored:
