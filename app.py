@@ -1,5 +1,10 @@
 import os, re, sqlite3, io, csv, ipaddress, socket, urllib.parse, hmac, time, urllib.robotparser, secrets, datetime
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+try:
     import psycopg
     DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, psycopg.errors.UniqueViolation)
 except ImportError:
