@@ -86,7 +86,7 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         countries=b.get("countries") or []
         if isinstance(countries,str):countries=[countries]
         countries=[x for x in countries if x in COUNTRIES]
-        engines=[x for x in (b.get("engines") or ["google","google_maps","bing","duckduckgo"]) if x in ("google","google_maps","bing","duckduckgo")]
+        engines=[x for x in (b.get("engines") or ["google","google_maps","bing","duckduckgo"]) if x in ("google","google_maps","bing","yahoo","yandex","duckduckgo")]
         try:target=max(1,min(1000,int(b.get("target",100))))
         except (ValueError,TypeError):target=100
         lang="en" if b.get("language")=="en" else "ar"
@@ -97,7 +97,7 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         for country in countries:
             for engine in engines:
                 if added>=target:break
-                if engine in ("google","google_maps","bing") and not os.getenv("SERPAPI_KEY") and not (engine=="google" and os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_CX")):
+                if engine in ("google","google_maps","bing","yahoo","yandex") and not os.getenv("SERPAPI_KEY") and not (engine=="google" and os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_CX")):
                     errors.append(engine+" يحتاج SERPAPI_KEY");continue
                 q=f"{keyword} {COUNTRIES[country]} شركة هاتف تواصل"
                 for item in get_results(q,country,engine,lang,max(10,target-added)):
