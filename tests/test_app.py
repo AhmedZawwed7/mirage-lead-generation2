@@ -173,3 +173,35 @@ def test_sales_csv_export_is_scoped_to_assigned_leads():
     body = response.get_data(as_text=True)
     assert "Visible Company" in body
     assert "Private Company" not in body
+
+
+def test_crm_activities_tasks_and_sales_scope():
+    cdb = app.db()
+    suffix = str(os.getpid())
+    username = "crm-user-" + suffix
+    cdb.execute("INSERT OR REPLACE INTO users(username,password_hash,role,active) VALUES(?,?,?,1)",
+                (username, app.generate_password_hash("long-test-password"), "sales"))
+    own = cdb.execute("INSERT INTO leads(company,phone,website,owner) VALUES(?,?,?,?)",
+                      ("CRM Own", "+20100000" + suffix[-5:], "https://crm-own-" + suffix + ".example", username)).lastrowid
+    other = cdb.execute("INSERT INTO leads(company,phone,website,owner) VALUES(?,?,?,?)",
+                        ("CRM Other", "+20111111" + suffix[-5:], "https://crm-other-" + suffix + ".example", "other-user")).lastrowid
+    cdb.commit()
+    cdb.close()
+    client = app.app.test_client()
+    client.post("/login", data={"username": username, "password": "long-test-password"})
+    headers = {"X-CSRF-Token": csrf(client)}
+    created = client.post(f"/api/leads/{own}/activities",
+                          json={"activity_type": "call", "note": "تم التواصل"}, headers=headers)
+    assert created.status_code == 201
+    assert client.get(f"/api/leads/{own}/activities").json["activities"][0]["note"] == "تم التواصل"
+    assert client.post(f"/api/leads/{other}/activities",
+                       json={"activity_type": "note", "note": "ممنوع"}, headers=headers).status_code == 403
+    task = client.post("/api/tasks", json={"lead_id": own, "title": "متابعة العميل",
+                        "due_at": "2026-11-10T10:00", "assigned_to": "other-user"}, headers=headers)
+    assert task.status_code == 201
+    assert task.json["task"]["assigned_to"] == username
+    task_id = task.json["task"]["id"]
+    assert client.patch(f"/api/tasks/{task_id}", json={"status": "done"}, headers=headers).status_code == 200
+    assert client.get("/api/tasks").json["tasks"][0]["status"] == "done"
+    assert client.post("/api/tasks", json={"lead_id": other, "title": "اختراق نطاق",
+                        "due_at": "2026-11-10T10:00"}, headers=headers).status_code == 403
