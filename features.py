@@ -43,7 +43,7 @@ EXPANSIONS={"تنظيف":["خدمات تنظيف","شركة نظافة","cleanin
 SKIP_DOMAINS=("facebook.com","instagram.com","linkedin.com","youtube.com","x.com","twitter.com","tiktok.com","wikipedia.org","yellowpages.","yelp.com","maps.google.")
 
 
-def register_featuresdef register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,robots_allowed):
+def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,robots_allowed):
     sender={"obj":None}
     def init_wa():
         if sender["obj"]: return sender["obj"]
