@@ -12,7 +12,8 @@ except ImportError:
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DB = os.getenv("MIRAGE_DB", os.path.join(ROOT, "instance", "mirage.db"))
-os.makedirs(os.path.dirname(DB), exist_ok=True)
+if not (os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")) and not os.getenv("VERCEL"):
+    os.makedirs(os.path.dirname(DB), exist_ok=True)
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY") or os.urandom(32)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "0") == "1")
@@ -50,6 +51,25 @@ def inject_csrf_token():
     return {"csrf_token": session.get("csrf_token", "")}
 
 def db():
+    dsn = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
+    if dsn:
+        from database import connect, initialize
+        c = connect(dsn)
+        initialize(c)
+        if PASSWORD:
+            admin_row = c.execute("SELECT password_hash FROM users WHERE username=?", (ADMIN,)).fetchone()
+            if not admin_row:
+                c.execute("INSERT OR IGNORE INTO users(username,password_hash,role) VALUES(?,?,?)",
+                          (ADMIN, generate_password_hash(PASSWORD), "admin"))
+            elif not check_password_hash(admin_row["password_hash"], PASSWORD):
+                c.execute("UPDATE users SET password_hash=?, role='admin', active=1 WHERE username=?",
+                          (generate_password_hash(PASSWORD), ADMIN))
+        c.commit()
+        return c
+
+    # Vercel must never silently fall back to ephemeral SQLite storage.
+    if os.getenv("VERCEL"):
+        raise RuntimeError("PostgreSQL is not configured: set DATABASE_URL from the Neon integration.")
     c = sqlite3.connect(DB, timeout=20)
     c.row_factory = sqlite3.Row
     c.execute("""CREATE TABLE IF NOT EXISTS leads(
@@ -59,13 +79,9 @@ def db():
         external_id TEXT DEFAULT '', consent TEXT DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(phone, website))""")
     cols = {row[1] for row in c.execute("PRAGMA table_info(leads)")}
-    migrations = {
-        "notes": "TEXT DEFAULT ''",
-        "source": "TEXT DEFAULT 'website'",
-        "campaign": "TEXT DEFAULT ''",
-        "external_id": "TEXT DEFAULT ''",
-        "consent": "TEXT DEFAULT ''",
-    }
+    migrations = {"notes": "TEXT DEFAULT ''", "source": "TEXT DEFAULT 'website'",
+                  "campaign": "TEXT DEFAULT ''", "external_id": "TEXT DEFAULT ''",
+                  "consent": "TEXT DEFAULT ''", "city": "TEXT DEFAULT ''"}
     for column, definition in migrations.items():
         if column not in cols:
             c.execute("ALTER TABLE leads ADD COLUMN " + column + " " + definition)
@@ -78,7 +94,6 @@ def db():
         id INTEGER PRIMARY KEY, actor TEXT, action TEXT, entity TEXT, entity_id INTEGER,
         details TEXT DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP)""")
     if PASSWORD:
-        # Idempotent bootstrap: concurrent Vercel cold starts must not race on the unique username.
         admin_row = c.execute("SELECT password_hash FROM users WHERE username=?", (ADMIN,)).fetchone()
         if not admin_row:
             c.execute("INSERT OR IGNORE INTO users(username,password_hash,role) VALUES(?,?,?)",
@@ -89,8 +104,13 @@ def db():
     c.execute("""CREATE TABLE IF NOT EXISTS batches(
         id INTEGER PRIMARY KEY, name TEXT, keyword TEXT, country TEXT,
         created TEXT DEFAULT CURRENT_TIMESTAMP, scanned INTEGER DEFAULT 0, added INTEGER DEFAULT 0)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS activities(id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL, actor TEXT NOT NULL, activity_type TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS tasks(id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL, assigned_to TEXT NOT NULL, title TEXT NOT NULL, due_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_by TEXT NOT NULL, created TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS activities(
+        id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL, actor TEXT NOT NULL,
+        activity_type TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS tasks(
+        id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL, assigned_to TEXT NOT NULL,
+        title TEXT NOT NULL, due_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open',
+        created_by TEXT NOT NULL, created TEXT DEFAULT CURRENT_TIMESTAMP)""")
     c.commit()
     return c
 
