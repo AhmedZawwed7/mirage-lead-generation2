@@ -205,7 +205,7 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         if not engines:return jsonify(error=map_warning or "لا يوجد محرك بحث متاح."),400
 
         c=db()
-        batch=c.execute("INSERT INTO batches(name,keyword,country) VALUES(?,?,?)",(keyword+" | "+", ".join(COUNTRIES[x] for x in countries),keyword+", ".join(countries))).lastrowid
+        batch=c.execute("INSERT INTO batches(name,keyword,country) VALUES(?,?,?)",(keyword+" | "+", ".join(COUNTRIES[x] for x in countries),keyword,", ".join(COUNTRIES[x] for x in countries))).lastrowid
         audit(c,"search.started","batch",batch,keyword+" | "+", ".join(countries));c.commit();c.close()
 
         keywords=[keyword]
@@ -267,7 +267,7 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         warning="؛ ".join(x for x in (map_warning,) if x)
         return jsonify(ok=True,batch_id=batch,scanned=scanned,added=added,duplicates=duplicates,target=target,countries=[COUNTRIES[x] for x in countries],engines=engines,warning=warning,note=("وصل البحث إلى الهدف المطلوب." if added>=target else "انتهت الاستعلامات المتاحة قبل الوصول للهدف؛ يمكنك بدء دفعة أخرى."))
 
-    @app.post("/api/email/test")    @app.post("/api/email/test")
+    @app.post("/api/email/test")
     @auth
     @role_required("admin","manager")
     def email_test():
