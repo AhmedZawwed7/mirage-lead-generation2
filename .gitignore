@@ -4,3 +4,8 @@ instance/
 __pycache__/
 .pytest_cache/
 .venv/
+
+# Private local WhatsApp Web profile and uploaded sender files
+wa_profile/
+instance/wa_profile/
+uploads/
