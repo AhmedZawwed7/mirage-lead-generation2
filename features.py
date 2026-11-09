@@ -45,11 +45,12 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
 
     def get_results(query,country,engine,lang,limit):
         key=os.getenv("SERPAPI_KEY")
-        if engine=="duckduckgo":
+        if engine!="google_maps" and not key:
             try:
                 from ddgs import DDGS
-                return list(DDGS().text(query,region="xa-ar" if lang=="ar" else "wt-wt",max_results=min(100,limit)))
-            except Exception: return []
+                region="xa-ar" if lang=="ar" else "wt-wt"
+                return list(DDGS().text(query,backend=engine,region=region,max_results=min(100,limit)))
+            except Exception:return []
         if engine=="google" and not key and os.getenv("GOOGLE_API_KEY") and os.getenv("GOOGLE_CX"):
             out=[]
             for start in range(1,min(91,limit)+1,10):
