@@ -128,4 +128,6 @@ def initialize(conn):
     ]
     for statement in statements:
         conn.execute(statement)
+    conn.execute("ALTER TABLE leads ADD COLUMN IF NOT EXISTS batch_id BIGINT REFERENCES batches(id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_leads_batch_id ON leads(batch_id)")
     conn.commit()
