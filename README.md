@@ -25,3 +25,15 @@ GitHub Actions يفحص صياغة Python ويشغّل اختبارات pytest �
 لا ترفع ملفات `.env` أو كلمات المرور أو مفاتيح API أو قواعد البيانات أو صادرات العملاء. استخدم `.env.example` بقيم وهمية فقط.
 
 > **حالة الإصدار:** المستودع يحتوي حاليًا على وثائق النطاق والبنية والأمان والتحقق الآلي. لا يُعلن التطبيق مكتملًا أو منشورًا حتى تُرفع ملفات التطبيق الفعلية وتنجح اختبارات التشغيل والتكامل على PostgreSQL. راجع [حالة المشروع](docs/PROJECT_STATUS_AR.md).
+
+
+## تشغيل مرسل WhatsApp على Windows
+
+1. ثبّت Python 3.11+ وNode.js وVercel CLI.
+2. من مجلد المشروع نفّذ `vercel link` مرة واحدة لربط المستودع بمشروع Mirage.
+3. اسحب متغيرات الإنتاج التي تحتوي على اتصال Neon إلى ملف محلي خاص:
+   `vercel env pull .env --environment=production`
+4. شغّل `start_windows.bat`.
+5. افتح `http://127.0.0.1:5000/whatsapp` واضغط ربط WhatsApp / QR، ثم امسح الرمز من الهاتف.
+
+يستخدم المرسل قاعدة Neon نفسها التي تحفظ نتائج البحث، ويحتفظ بجلسة Chrome على جهاز Windows فقط. لا ترفع `.env` أو مجلد `instance/wa_profile` أو `uploads/` إلى GitHub. مرسل WhatsApp Web لا يعمل داخل Vercel Serverless.
