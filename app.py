@@ -588,7 +588,7 @@ def team():
                 audit(c, "user.created", "user", cur.lastrowid, role)
                 c.commit()
                 flash("تم إنشاء المستخدم.")
-            except sqlite3.IntegrityError:
+            except DB_INTEGRITY_ERRORS:
                 flash("اسم المستخدم موجود بالفعل.")
     users = c.execute("SELECT id,username,role,active,created FROM users ORDER BY id").fetchall()
     c.close()
