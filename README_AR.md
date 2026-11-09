@@ -73,3 +73,21 @@
 الواجهة الجديدة تفصل صفحات البحث والعملاء ومرسل WhatsApp ومرسل البريد والنشاط والإحصائيات. البحث المتقدم يسمح بتحديد عدة دول وعدد نتائج مستهدف، ويدعم Google Web وGoogle Maps وBing وYahoo وYandex وDuckDuckGo وفق مفاتيح المزود المتاحة. بيانات Google Maps وGoogle/Bing/Yahoo/Yandex عبر SerpAPI تحتاج SERPAPI_KEY؛ Google Web يدعم أيضاً GOOGLE_API_KEY وGOOGLE_CX. لا يمكن لأي محرك إرجاع كل صفحات الإنترنت دون حدود أو ضمان التغطية.
 
 مرسل البريد يستخدم SMTP ويختبر الاتصال ويخصص {company} و{city}، ولا يحفظ كلمة مرور SMTP. مرسل WhatsApp المحلي يدعم ربط QR عبر WhatsApp Web، الرسائل المخصصة، المرفقات حتى 16MB، التأخير بين الرسائل، استراحة الدفعات، الحد اليومي، الإيقاف، وسجل الإرسال. يلزم Windows/Chrome وPlaywright: `pip install -r requirements-local.txt` ثم `playwright install chromium`. هذا المرسل غير متاح على Vercel Serverless. مجلد `instance/wa_profile` خاص ولا يجب رفعه إلى GitHub أو مشاركته.
+
+
+## PostgreSQL persistence and 48-hour minimum retention
+
+- On Vercel, connect the project to Neon. The integration provides `DATABASE_URL`; the app uses PostgreSQL whenever this variable (or `POSTGRES_URL`) exists.
+- Production deliberately refuses to fall back to Vercel's temporary filesystem when PostgreSQL is missing.
+- Leads are not automatically deleted. They remain in PostgreSQL until an authorized user explicitly deletes them, so the 48-hour minimum is exceeded rather than relying on a timed cleanup job.
+- The database schema is initialized idempotently at runtime. Existing lead, user, batch, task, activity, audit, and WhatsApp log tables are supported.
+
+## Windows WhatsApp sender using the same database
+
+1. Install the project locally and run `pip install -r requirements-local.txt`.
+2. Install the browser once: `playwright install chromium`.
+3. Install and authenticate Vercel CLI, link this repository to the Mirage Vercel project, then pull the production environment: `vercel env pull .env`.
+4. Keep `.env` private; it contains database and API secrets. Never commit it or the `instance/wa_profile/` directory.
+5. Run `python app.py`, open `/whatsapp`, connect WhatsApp Web with the QR code, then select leads from the saved PostgreSQL search results.
+
+The local sender and the hosted search site must use the same Neon `DATABASE_URL` to share leads. WhatsApp Web itself runs on the Windows machine; Vercel serverless functions do not host a persistent Chrome session.
