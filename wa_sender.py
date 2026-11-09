@@ -60,8 +60,17 @@ class WaSender:
                         ok=True;note=""
                         if item.get("attachment"):
                             try:
-                                attach=page.locator('input[type="file"]').last
-                                attach.set_input_files(item["attachment"],timeout=15000);time.sleep(2)
+                                menus=page.locator('[data-icon*="plus"], [data-icon*="attach"], [data-icon="clip"]')
+                                if menus.count(): menus.last.click(timeout=4000)
+                                inputs=page.locator('input[type="file"]')
+                                accepts=inputs.evaluate_all("els => els.map(e => (e.accept || '').toLowerCase())")
+                                if not accepts: raise RuntimeError("WhatsApp attachment input unavailable")
+                                import mimetypes
+                                mime=(mimetypes.guess_type(item["attachment"])[0] or "").lower()
+                                is_media=mime.startswith(("image/","video/"))
+                                candidates=[i for i,a in enumerate(accepts) if ("video" in a)==is_media and (is_media or not any(x in a for x in ("image","video","webp")))]
+                                index=candidates[0] if candidates else len(accepts)-1
+                                inputs.nth(index).set_input_files(item["attachment"],timeout=15000);time.sleep(2)
                                 send=page.locator('#main [data-icon="send"]').last
                                 send.wait_for(state="visible",timeout=15000);send.click(timeout=10000);time.sleep(2)
                             except Exception:ok=False;note="تعذر إرسال المرفق"
