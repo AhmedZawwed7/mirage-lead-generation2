@@ -222,10 +222,14 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
         keywords=list(dict.fromkeys(keywords))
         languages=("ar","en") if lang=="both" else (lang,)
         query_plan=[]
-        for code in countries:
-            cities=[city_filter] if city_filter else COUNTRY_DATA[code][1][:4]
-            for kw in keywords:
-                for city_name in cities:
+        # Interleave countries so a bounded search still covers every selected market.
+        max_city_slots=max([len([city_filter] if city_filter else COUNTRY_DATA[code][1][:4]) for code in countries] or [1])
+        for city_index in range(max_city_slots):
+            for code in countries:
+                cities=[city_filter] if city_filter else COUNTRY_DATA[code][1][:4]
+                if city_index>=len(cities):continue
+                city_name=cities[city_index]
+                for kw in keywords:
                     for language in languages:
                         modifier=MODIFIERS[0] if language=="ar" else MODIFIERS[-1]
                         query_plan.append((" ".join(x for x in (kw,city_name,COUNTRIES[code],modifier) if x),code,language,kw))
@@ -256,7 +260,7 @@ def register_features(app,db,auth,role_required,audit,safe_fetch,is_public_url,r
                             if (pn and pn in seen_phones) or (em and em in seen_emails):duplicates+=1;continue
                             c=db()
                             old=c.execute("""SELECT id FROM leads
-                                WHERE (?<>'' AND REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(', '')=?)
+                                WHERE (?<>'' AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone,'+',''),' ',''),'-',''),'(', ''),')',''),'.','')=?)
                                    OR (?<>'' AND lower(email)=?)
                                    OR (?<>'' AND lower(website)=?) LIMIT 1""",(pn,pn,em,em,host,host)).fetchone()
                             if old:duplicates+=1;c.close();continue
