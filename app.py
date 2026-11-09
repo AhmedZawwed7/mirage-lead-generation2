@@ -121,6 +121,10 @@ def db():
         id INTEGER PRIMARY KEY, lead_id INTEGER NOT NULL, assigned_to TEXT NOT NULL,
         title TEXT NOT NULL, due_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open',
         created_by TEXT NOT NULL, created TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    cols = {row[1] for row in c.execute("PRAGMA table_info(leads)")}
+    if "batch_id" not in cols:
+        c.execute("ALTER TABLE leads ADD COLUMN batch_id INTEGER")
+    c.execute("CREATE INDEX IF NOT EXISTS ix_leads_batch_id ON leads(batch_id)")
     c.commit()
     return c
 
